@@ -8,41 +8,41 @@ const pWaitFor = require('p-wait-for');
 const test = require('tape');
 
 const run = () => test('vscode-stylelint-plus', async t => {
-	const vscodeStylelint = extensions.getExtension('hex-ci.stylelint-plus');
+  const vscodeStylelint = extensions.getExtension('hex-ci.stylelint-plus');
 
-	const plaintextDocument = await workspace.openTextDocument({
-		content: 'Hello',
-		language: 'plaintext'
-	});
+  const plaintextDocument = await workspace.openTextDocument({
+    content: 'Hello',
+    language: 'plaintext'
+  });
 
-	await window.showTextDocument(plaintextDocument);
+  await window.showTextDocument(plaintextDocument);
 
-	t.equal(
-		vscodeStylelint.isActive,
-		false,
-		'should not be activated when the open file is not CSS.'
-	);
+  t.equal(
+    vscodeStylelint.isActive,
+    false,
+    'should not be activated when the open file is not CSS.'
+  );
 
-	const cssDocument = await workspace.openTextDocument({
-		content: '}',
-		language: 'css'
-	});
+  const cssDocument = await workspace.openTextDocument({
+    content: '}',
+    language: 'css'
+  });
 
-	await window.showTextDocument(cssDocument);
-	await pWaitFor(() => vscodeStylelint.isActive, 2000);
+  await window.showTextDocument(cssDocument);
+  await pWaitFor(() => vscodeStylelint.isActive, 2000);
 
-	t.pass('should be activated when the open file is CSS.');
+  t.pass('should be activated when the open file is CSS.');
 
-	t.equal(
-		(await workspace.openTextDocument(join(__dirname, '.stylelintignore'))).languageId,
-		'ignore',
-		'should add syntax highlighting to .stylelintignore.'
-	);
+  t.equal(
+    (await workspace.openTextDocument(join(__dirname, '.stylelintignore'))).languageId,
+    'ignore',
+    'should add syntax highlighting to .stylelintignore.'
+  );
 
-	t.end();
+  t.end();
 });
 
 exports.run = (root, done) => {
-	test.onFinish(done);
-	run();
+  test.onFinish(done);
+  run();
 };

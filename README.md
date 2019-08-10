@@ -61,6 +61,13 @@ Default: `true`
 
 Control whether this extension is enabled or not.
 
+#### stylelint.autoFixOnSave
+
+Type: `boolean`  
+Default: `false`
+
+Turns auto fix on save on or off.
+
 #### stylelint.configOverrides
 
 Type: `Object`  
