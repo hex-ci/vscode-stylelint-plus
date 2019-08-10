@@ -1,6 +1,6 @@
 {
 	"name": "stylelint-plus",
-	"version": "0.51.0",
+	"version": "0.51.1",
 	"displayName": "stylelint-plus",
 	"description": "Modern CSS/SCSS/Less linter",
 	"publisher": "hex-ci",
