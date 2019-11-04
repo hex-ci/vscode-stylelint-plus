@@ -103,17 +103,17 @@
     "test": "node node_modules/vscode/bin/test"
   },
   "dependencies": {
-    "find-pkg-dir": "^2.0.0",
-    "path-is-inside": "^1.0.2",
-    "vscode-languageclient": "^5.2.1",
-    "vscode-languageserver": "^5.2.1",
-    "vscode-uri": "^2.0.1",
     "array-to-error": "^1.1.1",
     "array-to-sentence": "^2.0.0",
+    "find-pkg-dir": "^2.0.0",
     "inspect-with-kind": "^1.0.5",
     "lodash": "^4.17.15",
-    "stylelint": "^10.1.0",
-    "stylelint-warning-to-vscode-diagnostic": "^1.0.1"
+    "path-is-inside": "^1.0.2",
+    "stylelint": "^11.1.1",
+    "stylelint-warning-to-vscode-diagnostic": "^1.0.1",
+    "vscode-languageclient": "^5.2.1",
+    "vscode-languageserver": "^5.2.1",
+    "vscode-uri": "^2.0.1"
   },
   "devDependencies": {
     "eslint": "^5.16.0",
