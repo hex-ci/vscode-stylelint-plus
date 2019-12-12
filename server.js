@@ -11,6 +11,7 @@ const stylelintVSCode = require('./stylelint-vscode');
 let config;
 let configOverrides;
 let autoFixOnSave;
+let useLocal;
 
 const connection = createConnection(ProposedFeatures.all);
 const documents = new TextDocuments();
@@ -46,6 +47,10 @@ async function validate(document, isAutoFixOnSave = false) {
 
     if (options.ignorePath === undefined) {
       options.ignorePath = join(findPkgDir(documentPath) || parse(documentPath).root, '.stylelintignore');
+    }
+
+    if (useLocal) {
+      options.path = join(findPkgDir(documentPath), 'node_modules/stylelint');
     }
   }
 
@@ -92,6 +97,7 @@ connection.onDidChangeConfiguration(({settings}) => {
   config = settings.stylelint.config;
   configOverrides = settings.stylelint.configOverrides;
   autoFixOnSave = settings.stylelint.autoFixOnSave;
+  useLocal = settings.stylelint.useLocal;
 
   validateAll();
 });
