@@ -103,6 +103,7 @@ module.exports = async function stylelintVSCode(...args) {
   if (codeFilename) {
     if (options.fix) {
       priorOptions.files = [codeFilename];
+      priorOptions.allowEmptyInput = true;
     } else {
       priorOptions.code = textDocument.getText();
       priorOptions.codeFilename = codeFilename;
