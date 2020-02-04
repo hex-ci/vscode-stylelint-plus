@@ -5,7 +5,6 @@ const arrayToSentence = require('array-to-sentence');
 const {at, has, intersection, isPlainObject, map, stubString} = require('lodash');
 const {Files, TextDocument} = require('vscode-languageserver');
 const inspectWithKind = require('inspect-with-kind');
-const {lint} = require('stylelint');
 const stylelintWarningToVscodeDiagnostic = require('stylelint-warning-to-vscode-diagnostic');
 
 // https://github.com/stylelint/stylelint/blob/10.0.1/lib/getPostcssResult.js#L69-L81
@@ -125,6 +124,8 @@ module.exports = async function stylelintVSCode(...args) {
       priorOptions.config = {rules: {}};
     }
   }
+
+  const {lint} = require(options.path || 'stylelint')
 
   try {
     resultContainer = await lint({...options, ...priorOptions});
