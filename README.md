@@ -84,6 +84,13 @@ Default: `null`
 
 Set stylelint [`config`](https://github.com/stylelint/stylelint/blob/master/docs/user-guide/node-api.md#config) option. Note that when this option is enabled, stylelint doesn't load configuration files.
 
+#### stylelint.useLocal
+
+Type: `Boolean`  
+Default: `false`
+
+Use local version of stylelint.
+
 ## License
 
 [ISC License](./LICENSE.txt) © 2018- 2019 Watanabe Shinnosuke
