@@ -108,6 +108,8 @@ module.exports = async function stylelintVSCode(...args) {
       priorOptions.codeFilename = codeFilename;
     }
   } else {
+    priorOptions.code = textDocument.getText();
+
     if (!has(options, 'syntax')) {
       if (SUPPORTED_SYNTAXES.has(textDocument.languageId)) {
         priorOptions.syntax = textDocument.languageId;
