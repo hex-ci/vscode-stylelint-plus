@@ -58,38 +58,45 @@ Though it's highly recommended to add a [stylelint configuration file](https://s
 
 #### stylelint.enable
 
-Type: `boolean`  
+Type: `boolean`
 Default: `true`
 
 Control whether this extension is enabled or not.
 
 #### stylelint.autoFixOnSave
 
-Type: `boolean`  
+Type: `boolean`
 Default: `false`
 
 Turns auto fix on save on or off.
 
 #### stylelint.configOverrides
 
-Type: `Object`  
+Type: `Object`
 Default: `null`
 
 Set stylelint [`configOverrides`](https://github.com/stylelint/stylelint/blob/master/docs/user-guide/node-api.md#configoverrides) option.
 
 #### stylelint.config
 
-Type: `Object`  
+Type: `Object`
 Default: `null`
 
 Set stylelint [`config`](https://github.com/stylelint/stylelint/blob/master/docs/user-guide/node-api.md#config) option. Note that when this option is enabled, stylelint doesn't load configuration files.
 
 #### stylelint.useLocal
 
-Type: `Boolean`  
+Type: `Boolean`
 Default: `false`
 
 Use local version of stylelint.
+
+#### stylelint.disableErrorMessage
+
+Type: `Boolean`
+Default: `true`
+
+Whether to turn off the display of error messages.
 
 ## License
 
