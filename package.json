@@ -87,6 +87,11 @@
           "type": "boolean",
           "default": false,
           "description": "Turns auto fix on save on or off."
+        },
+        "stylelint.disableErrorMessage": {
+          "type": "boolean",
+          "default": true,
+          "description": "Whether to turn off the display of error messages."
         }
       }
     },

@@ -12,6 +12,7 @@ let config;
 let configOverrides;
 let autoFixOnSave;
 let useLocal;
+let disableErrorMessage;
 
 const connection = createConnection(ProposedFeatures.all);
 const documents = new TextDocuments();
@@ -60,6 +61,10 @@ async function validate(document, isAutoFixOnSave = false) {
       diagnostics: await stylelintVSCode(document, options)
     });
   } catch (err) {
+    if (disableErrorMessage) {
+      return;
+    }
+
     if (err.reasons) {
       for (const reason of err.reasons) {
         connection.window.showErrorMessage(`stylelint: ${reason}`);
@@ -98,6 +103,7 @@ connection.onDidChangeConfiguration(({settings}) => {
   configOverrides = settings.stylelint.configOverrides;
   autoFixOnSave = settings.stylelint.autoFixOnSave;
   useLocal = settings.stylelint.useLocal;
+  disableErrorMessage = settings.stylelint.disableErrorMessage;
 
   validateAll();
 });
