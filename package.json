@@ -1,6 +1,6 @@
 {
   "name": "stylelint-plus",
-  "version": "0.53.3",
+  "version": "0.53.4",
   "displayName": "stylelint-plus",
   "description": "Modern CSS/SCSS/Less linter for vscode, support auto fix on save.",
   "publisher": "hex-ci",
