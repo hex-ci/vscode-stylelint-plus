@@ -77,9 +77,7 @@
           "description": "A partial stylelint config whose properties override the existing ones."
         },
         "stylelint.useLocal": {
-          "type": [
-            "boolean"
-          ],
+          "type": "boolean",
           "default": false,
           "description": "use local version of stylelint"
         },
