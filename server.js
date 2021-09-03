@@ -1,6 +1,7 @@
 'use strict';
 
-const {join, parse} = require('path');
+const {join, parse, resolve} = require('path');
+const fs = require('fs');
 
 const {createConnection, ProposedFeatures, TextDocuments} = require('vscode-languageserver');
 const findPkgDir = require('find-pkg-dir');
@@ -51,7 +52,23 @@ async function validate(document, isAutoFixOnSave = false) {
     }
 
     if (useLocal) {
-      options.path = join(findPkgDir(documentPath), 'node_modules/stylelint');
+      let dir;
+      let startDir = documentPath;
+
+      while (dir = findPkgDir(startDir)) {
+        const localPath = join(dir, 'node_modules', 'stylelint');
+
+        if (fs.existsSync(localPath)) {
+          options.path = localPath;
+          break;
+        }
+
+        startDir = resolve(dir, '..');
+      }
+
+      if (!options.path) {
+        return;
+      }
     }
   }
 
