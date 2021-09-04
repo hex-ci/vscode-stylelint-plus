@@ -7,7 +7,7 @@
   "repository": "https://github.com/hex-ci/vscode-stylelint-plus",
   "homepage": "https://github.com/hex-ci/vscode-stylelint-plus#readme",
   "bugs": "https://github.com/hex-ci/vscode-stylelint-plus/issues",
-  "license": "ISC",
+  "license": "MIT",
   "icon": "media/icon.png",
   "galleryBanner": {
     "color": "#32CD32",
