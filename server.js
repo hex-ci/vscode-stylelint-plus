@@ -67,8 +67,12 @@ async function validate(document, isAutoFixOnSave = false) {
       }
 
       if (!options.path) {
+        connection.sendRequest('setStatusBarError');
         return;
       }
+    }
+    else {
+      connection.sendRequest('setStatusBarOk');
     }
   }
 
@@ -78,6 +82,8 @@ async function validate(document, isAutoFixOnSave = false) {
       diagnostics: await stylelintVSCode(document, options)
     });
   } catch (err) {
+    connection.sendRequest('setStatusBarError');
+
     if (disableErrorMessage) {
       return;
     }
@@ -115,6 +121,7 @@ connection.onInitialize(() => {
     }
   };
 });
+
 connection.onDidChangeConfiguration(({settings}) => {
   config = settings.stylelint.config;
   configOverrides = settings.stylelint.configOverrides;
@@ -124,9 +131,11 @@ connection.onDidChangeConfiguration(({settings}) => {
 
   validateAll();
 });
+
 connection.onDidChangeWatchedFiles(validateAll);
 
 documents.onDidChangeContent(({document}) => validate(document));
+
 documents.onDidClose(({document}) => connection.sendDiagnostics({
   uri: document.uri,
   diagnostics: []
