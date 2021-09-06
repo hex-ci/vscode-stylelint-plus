@@ -77,11 +77,17 @@ async function validate(document, isAutoFixOnSave = false) {
   }
 
   try {
+    const diagnostics = await stylelintVSCode(document, options);
+
     connection.sendDiagnostics({
       uri: document.uri,
-      diagnostics: await stylelintVSCode(document, options)
+      diagnostics
     });
-  } catch (err) {
+
+    connection.sendRequest('setStatusBarOk');
+  }
+  catch (err) {
+    connection.console.log(err);
     connection.sendRequest('setStatusBarError');
 
     if (disableErrorMessage) {
