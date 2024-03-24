@@ -130,7 +130,11 @@ module.exports = async function stylelintVSCode(...args) {
   const {lint} = require(options.path || 'stylelint')
 
   try {
-    resultContainer = await lint({...options, ...priorOptions});
+    resultContainer = await lint({
+      ...options,
+      ...priorOptions,
+      quietDeprecationWarnings: true,
+    });
   } catch (err) {
     if (
       err.message.startsWith('No configuration provided for') ||
