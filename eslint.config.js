@@ -2,7 +2,6 @@
 // https://eslint.org/docs/latest/use/configure/configuration-files-new
 
 module.exports = [
-  // 全局配置
   {
     ignores: [
       'node_modules/**',
@@ -14,15 +13,13 @@ module.exports = [
     ]
   },
 
-  // 主要配置
   {
     files: ['**/*.js'],
-    ignores: ['eslint.config.js', 'stylelint.config.js'], // 排除配置文件
+    ignores: ['eslint.config.js'],
     languageOptions: {
       ecmaVersion: 2022,
       sourceType: 'commonjs',
       globals: {
-        // Node.js 全局变量
         __dirname: 'readonly',
         __filename: 'readonly',
         Buffer: 'readonly',
@@ -41,7 +38,6 @@ module.exports = [
       }
     },
     rules: {
-      // 代码风格
       'indent': ['error', 2, { SwitchCase: 1 }],
       'quotes': ['error', 'single', { avoidEscape: true }],
       'semi': ['error', 'always'],
@@ -49,7 +45,6 @@ module.exports = [
       'eol-last': ['error', 'always'],
       'comma-dangle': ['error', 'never'],
 
-      // 代码质量
       'no-unused-vars': ['error', {
         args: 'all',
         argsIgnorePattern: '^_',
@@ -58,24 +53,20 @@ module.exports = [
         caughtErrorsIgnorePattern: '^_'
       }],
       'no-undef': 'error',
-      'no-console': 'off', // VS Code 扩展需要 console
+      'no-console': 'off',
       'no-debugger': 'error',
 
-      // 允许赋值表达式在条件中使用（项目现有代码风格）
       'no-cond-assign': ['error', 'except-parens'],
 
-      // 允许使用 Function 构造函数（用于动态 import workaround）
       'no-new-func': 'off',
 
-      // 现代 JavaScript 特性
       'prefer-const': 'error',
       'no-var': 'error',
-      'prefer-arrow-callback': 'off', // 项目使用传统函数
+      'prefer-arrow-callback': 'off',
       'prefer-template': 'off'
     }
   },
 
-  // 测试文件特殊配置
   {
     files: ['test/**/*.js'],
     languageOptions: {
