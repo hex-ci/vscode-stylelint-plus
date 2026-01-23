@@ -1,11 +1,62 @@
 'use strict';
 
+const fs = require('fs');
+const {join} = require('path');
 const arrayToError = require('array-to-error');
 const arrayToSentence = require('array-to-sentence');
 const {at, has, intersection, isPlainObject, map, stubString} = require('lodash');
 const {Files, TextDocument} = require('vscode-languageserver');
 const inspectWithKind = require('inspect-with-kind');
-const stylelintWarningToVscodeDiagnostic = require('stylelint-warning-to-vscode-diagnostic');
+const stylelintWarningToVscodeDiagnostic = require('./diagnostic');
+
+async function loadStylelint(modulePath) {
+  if (!modulePath) {
+    return require('stylelint');
+  }
+
+  const pkgJsonPath = join(modulePath, 'package.json');
+
+  if (!fs.existsSync(pkgJsonPath)) {
+    throw new Error(`Cannot find package.json at ${pkgJsonPath}`);
+  }
+
+  const pkgJson = JSON.parse(fs.readFileSync(pkgJsonPath, 'utf8'));
+  const majorVersion = parseInt(pkgJson.version.split('.')[0]);
+
+  if (majorVersion >= 17) {
+    let entryPoint;
+
+    if (pkgJson.exports) {
+      if (typeof pkgJson.exports === 'string') {
+        entryPoint = join(modulePath, pkgJson.exports);
+      }
+      else if (pkgJson.exports['.']) {
+        const dotExport = pkgJson.exports['.'];
+
+        if (typeof dotExport === 'string') {
+          entryPoint = join(modulePath, dotExport);
+        }
+        else if (dotExport.import) {
+          entryPoint = join(modulePath, dotExport.import);
+        }
+        else if (dotExport.default) {
+          entryPoint = join(modulePath, dotExport.default);
+        }
+      }
+    }
+
+    if (!entryPoint) {
+      entryPoint = join(modulePath, pkgJson.module || pkgJson.main || 'index.js');
+    }
+
+    const fileUrl = `file://${entryPoint}`;
+    const esmModule = await import(fileUrl);
+
+    return esmModule.default || esmModule;
+  }
+
+  return require(modulePath);
+}
 
 // https://github.com/stylelint/stylelint/blob/10.0.1/lib/getPostcssResult.js#L69-L81
 const SUPPORTED_SYNTAXES = new Set([
@@ -103,17 +154,20 @@ module.exports = async function stylelintVSCode(...args) {
     if (options.fix) {
       priorOptions.files = [codeFilename];
       priorOptions.allowEmptyInput = true;
-    } else {
+    }
+    else {
       priorOptions.code = textDocument.getText();
       priorOptions.codeFilename = codeFilename;
     }
-  } else {
+  }
+  else {
     priorOptions.code = textDocument.getText();
 
     if (!has(options, 'syntax')) {
       if (SUPPORTED_SYNTAXES.has(textDocument.languageId)) {
         priorOptions.syntax = textDocument.languageId;
-      } else {
+      }
+      else {
         const syntax = LANGUAGE_EXTENSION_EXCEPTION_PAIRS.get(textDocument.languageId);
 
         if (syntax) {
@@ -127,15 +181,17 @@ module.exports = async function stylelintVSCode(...args) {
     }
   }
 
-  const {lint} = require(options.path || 'stylelint')
+  const stylelintModule = await loadStylelint(options.path);
+  const { lint } = stylelintModule;
 
   try {
     resultContainer = await lint({
       ...options,
       ...priorOptions,
-      quietDeprecationWarnings: true,
+      quietDeprecationWarnings: true
     });
-  } catch (err) {
+  }
+  catch (err) {
     if (
       err.message.startsWith('No configuration provided for') ||
       err.message.includes('No rules found within configuration')

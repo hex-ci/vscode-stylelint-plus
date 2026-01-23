@@ -15,12 +15,31 @@ for (const activationEvent of activationEvents) {
 
 const statusBarItem = window.createStatusBarItem(StatusBarAlignment.Right, 1);
 
+const versionInfo = {
+  version: null,
+  isLocal: false
+};
+
 const setStatusBar = (status = 'ok') => {
-  statusBarItem.text = status === 'ok' ? 'Stylelint+' : '$(error) Stylelint+';
+  if (versionInfo.version) {
+    const source = versionInfo.isLocal ? 'local' : 'bundled';
+
+    statusBarItem.text = status === 'ok'
+      ? `Stylelint+ (${source} v${versionInfo.version})`
+      : `$(error) Stylelint+ (${source} v${versionInfo.version})`;
+    statusBarItem.tooltip = status === 'ok'
+      ? `Using ${source} stylelint ${versionInfo.version}`
+      : `Stylelint+ server stopped (${source} v${versionInfo.version})`;
+  }
+  else {
+    statusBarItem.text = status === 'ok' ? 'Stylelint+' : '$(error) Stylelint+';
+    statusBarItem.tooltip = status === 'ok' ? 'Stylelint+ server is running.' : 'Stylelint+ server stopped.';
+  }
+
   statusBarItem.backgroundColor = ThemeColor;
-  statusBarItem.tooltip = status === 'ok' ? 'Stylelint+ server is running.' : 'Stylelint+ server stopped.';
+
   statusBarItem.show();
-}
+};
 
 exports.activate = ({subscriptions}) => {
   const serverPath = require.resolve('./server.js');
@@ -52,6 +71,13 @@ exports.activate = ({subscriptions}) => {
     });
 
     client.onRequest('setStatusBarOk', () => {
+      setStatusBar('ok');
+    });
+
+    client.onNotification('stylelint/versionDetected', ({version, isLocal}) => {
+      versionInfo.version = version;
+      versionInfo.isLocal = isLocal;
+
       setStatusBar('ok');
     });
   });

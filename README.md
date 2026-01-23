@@ -30,6 +30,57 @@ To prevent both [the editor built-in linters](https://code.visualstudio.com/docs
 
 ## Usage
 
+### Stylelint Version Support
+
+This extension supports **stylelint v15, v16, and v17** with automatic version detection.
+
+#### Default Behavior (Bundled Version)
+
+- **Bundled**: stylelint v15.x (CommonJS)
+- **Works with**: All Node.js versions >= 18.0.0
+- **Enabled when**: `stylelint.useLocal` is `false` (default)
+
+#### Local Version (User-Installed)
+
+- **Supported**: v15.x, v16.x, v17.x
+- **Auto-detection**: Automatically detects and loads the correct version
+- **Enabled when**: `stylelint.useLocal` is `true`
+
+#### Migrating to Stylelint v17
+
+Stylelint v17 requires **Node.js >= 20.19.0** and uses **ESM** exclusively.
+
+**Steps:**
+1. Upgrade Node.js:
+   ```bash
+   nvm install 20
+   nvm use 20
+   ```
+
+2. Install stylelint v17 locally:
+   ```bash
+   npm install stylelint@^17 --save-dev
+   ```
+
+3. Enable local version in VS Code settings:
+   ```json
+   {
+     "stylelint.useLocal": true
+   }
+   ```
+
+4. Reload VS Code
+
+The extension will automatically detect and use the ESM version.
+
+#### Version Indicator
+
+Check the status bar (bottom-right) to see which stylelint version is active:
+- `Stylelint+ (bundled v16.0.0)` - Using extension's bundled version
+- `Stylelint+ (local v17.0.0)` - Using project's local version
+
+### Document Validation
+
 Once a user follows [the stylelint startup guide](https://github.com/stylelint/stylelint#getting-started) by creating a [configuration](https://stylelint.io/user-guide/configuration/) file or by editing [`stylelint.*` VSCode settings](#extension-settings), stylelint automatically validates documents with these [language identifiers](https://code.visualstudio.com/docs/languages/overview#_language-id):
 
 <img align="right" width="430" alt="UI to select a language identifier" src="https://raw.githubusercontent.com/hex-ci/vscode-stylelint-plus/master/media/language.png">

@@ -14,6 +14,8 @@ let configOverrides;
 let autoFixOnSave;
 let useLocal;
 let disableErrorMessage;
+let detectedStylelintVersion = null;
+let isUsingLocal = false;
 
 const connection = createConnection(ProposedFeatures.all);
 const documents = new TextDocuments();
@@ -55,7 +57,7 @@ async function validate(document, isAutoFixOnSave = false) {
       let dir;
       let startDir = documentPath;
 
-      while (dir = findPkgDir(startDir)) {
+      while ((dir = findPkgDir(startDir))) {
         const localPath = join(dir, 'node_modules', 'stylelint');
 
         if (fs.existsSync(localPath)) {
@@ -70,11 +72,39 @@ async function validate(document, isAutoFixOnSave = false) {
         connection.sendRequest('setStatusBarError');
         return;
       }
+
+      try {
+        const pkgPath = join(options.path, 'package.json');
+        const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+
+        detectedStylelintVersion = pkg.version;
+
+        isUsingLocal = true;
+      }
+      catch (_err) {
+        detectedStylelintVersion = 'unknown';
+        isUsingLocal = true;
+      }
     }
     else {
       connection.sendRequest('setStatusBarOk');
+
+      try {
+        const bundledPkg = require('./package.json');
+        detectedStylelintVersion = bundledPkg.dependencies.stylelint.replace(/[\^~]/, '');
+        isUsingLocal = false;
+      }
+      catch (_err) {
+        detectedStylelintVersion = '16.x';
+        isUsingLocal = false;
+      }
     }
   }
+
+  connection.sendNotification('stylelint/versionDetected', {
+    version: detectedStylelintVersion,
+    isLocal: isUsingLocal
+  });
 
   try {
     const diagnostics = await stylelintVSCode(document, options);

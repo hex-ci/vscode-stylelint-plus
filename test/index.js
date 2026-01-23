@@ -1,4 +1,3 @@
-/* eslint-disable node/no-unpublished-require */
 'use strict';
 
 const {join} = require('path');
@@ -42,7 +41,7 @@ const run = () => test('vscode-stylelint-plus', async t => {
   t.end();
 });
 
-exports.run = (root, done) => {
+exports.run = (_root, done) => {
   test.onFinish(done);
   run();
 };
