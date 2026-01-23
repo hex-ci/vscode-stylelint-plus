@@ -80,6 +80,44 @@ Check the status bar (bottom-right) to see which stylelint version is active:
 - `Stylelint+ (bundled v16.0.0)` - Using extension's bundled version
 - `Stylelint+ (local v17.0.0)` - Using project's local version
 
+### Features
+
+#### Auto-fix and Quick Fix
+
+This extension provides multiple ways to fix stylelint issues:
+
+**1. Auto-fix on Save**
+- Enable `stylelint.autoFixOnSave` setting to automatically fix all auto-fixable problems when you save a file
+- All fixable issues will be corrected automatically without manual intervention
+
+**2. Quick Fix (Code Actions)**
+- Hover over any stylelint diagnostic (underlined issue) and click the light bulb icon, or press `Ctrl+.` (Windows/Linux) or `Cmd+.` (Mac)
+- Choose from available fixes:
+  - **Fix: [specific issue]** - Fix only the issue at the current cursor position
+  - **Fix all auto-fixable stylelint problems** - Fix all auto-fixable issues in the current file
+
+**3. Manual Command**
+- Execute the command `Stylelint: Fix all auto-fixable problems` from the Command Palette (`Ctrl+Shift+P` or `Cmd+Shift+P`)
+- Fixes all auto-fixable issues in the currently active document
+- Works on all supported file types
+
+#### Status Bar Indicator
+
+The extension displays a status bar item in the bottom-right corner showing:
+- **Green checkmark**: Stylelint is running successfully
+  - Example: `Stylelint+ (bundled v15.11.0)` or `Stylelint+ (local v17.0.0)`
+- **Red error icon**: Stylelint encountered an error (e.g., local version not found)
+- Hover over the status bar item to see detailed version information
+
+#### Fallback to Syntax Checking
+
+If no stylelint configuration is found (no `.stylelintrc` or other config files), the extension will:
+- Still perform **CSS syntax validation** to catch basic syntax errors
+- Use an empty ruleset (no style rules enforced)
+- Continue to work without showing configuration errors
+
+This allows you to catch syntax errors even before setting up full stylelint rules.
+
 ### Document Validation
 
 Once a user follows [the stylelint startup guide](https://github.com/stylelint/stylelint#getting-started) by creating a [configuration](https://stylelint.io/user-guide/configuration/) file or by editing [`stylelint.*` VSCode settings](#extension-settings), stylelint automatically validates documents with these [language identifiers](https://code.visualstudio.com/docs/languages/overview#_language-id):
@@ -107,7 +145,7 @@ Once a user follows [the stylelint startup guide](https://github.com/stylelint/s
 * XML (`xml`)
 * XSL (`xsl`)
 
-### Extension settings
+### Extension Settings
 
 Though it's highly recommended to add a [stylelint configuration file](https://stylelint.io/user-guide/example-config/) to the current workspace folder instead, the following extension [settings](https://code.visualstudio.com/docs/getstarted/settings) are also available.
 
@@ -123,36 +161,56 @@ Control whether this extension is enabled or not.
 Type: `boolean`
 Default: `false`
 
-Turns auto fix on save on or off.
+Automatically fix all auto-fixable stylelint issues when saving a file.
+
+**Note**: This setting applies fixes to the entire file on save. For more granular control, use [Quick Fix](#auto-fix-and-quick-fix) instead.
 
 #### stylelint.configOverrides
 
 Type: `Object`
 Default: `null`
 
-Set stylelint [`configOverrides`](https://github.com/stylelint/stylelint/blob/master/docs/user-guide/node-api.md#configoverrides) option.
+Set stylelint [`configOverrides`](https://github.com/stylelint/stylelint/blob/master/docs/user-guide/node-api.md#configoverrides) option. This partially overrides the existing configuration loaded from config files.
+
+**Example**:
+```json
+{
+  "stylelint.configOverrides": {
+    "rules": {
+      "indentation": 4
+    }
+  }
+}
+```
 
 #### stylelint.config
 
 Type: `Object`
 Default: `null`
 
-Set stylelint [`config`](https://github.com/stylelint/stylelint/blob/master/docs/user-guide/node-api.md#config) option. Note that when this option is enabled, stylelint doesn't load configuration files.
+Set stylelint [`config`](https://github.com/stylelint/stylelint/blob/master/docs/user-guide/node-api.md#config) option.
+
+**Important**: When this option is set, stylelint **will not** load configuration files (`.stylelintrc`, `stylelint.config.js`, etc.). Use `configOverrides` if you want to extend an existing configuration instead.
 
 #### stylelint.useLocal
 
-Type: `Boolean`
+Type: `boolean`
 Default: `false`
 
-Use local version of stylelint.
+Use the locally installed version of stylelint from your project's `node_modules` instead of the bundled version.
+
+**How it works**:
+- The extension searches upward from the current file's directory for `node_modules/stylelint`
+- Supports stylelint v15, v16, and v17 with automatic version detection
+- If local stylelint is not found, the extension will show an error status in the status bar
 
 #### stylelint.disableErrorMessage
 
-Type: `Boolean`
+Type: `boolean`
 Default: `true`
 
-Whether to turn off the display of error messages.
+Whether to suppress error message popups. When enabled, errors are logged to the console but don't show as VS Code notifications.
 
 ## License
 
-[MIT License](./LICENSE) © 2019 - 2021 Hex
+[MIT License](./LICENSE) © 2019 - 2026 Hex

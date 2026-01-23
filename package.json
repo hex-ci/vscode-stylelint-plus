@@ -52,6 +52,13 @@
   ],
   "main": "index.js",
   "contributes": {
+    "commands": [
+      {
+        "command": "stylelint.executeAutofix",
+        "title": "Fix all auto-fixable problems",
+        "category": "Stylelint"
+      }
+    ],
     "configuration": {
       "type": "object",
       "title": "stylelint+ configuration options",

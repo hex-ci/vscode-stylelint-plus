@@ -1,7 +1,7 @@
 'use strict';
 
 const {LanguageClient, SettingMonitor} = require('vscode-languageclient');
-const {workspace, window, StatusBarAlignment, ThemeColor} = require('vscode');
+const {workspace, window, StatusBarAlignment, ThemeColor, commands} = require('vscode');
 const {activationEvents} = require('./package.json');
 
 const documentSelector = [];
@@ -80,6 +80,51 @@ exports.activate = ({subscriptions}) => {
 
       setStatusBar('ok');
     });
+
+    subscriptions.push(
+      commands.registerCommand('stylelint.executeAutofix', async (uriArg, diagnosticArg) => {
+        let uri = uriArg;
+        let diagnostic = diagnosticArg;
+
+        if (!uri) {
+          const activeEditor = window.activeTextEditor;
+
+          if (!activeEditor) {
+            window.showInformationMessage('Please open a file to use this command.');
+
+            return;
+          }
+
+          const document = activeEditor.document;
+          const supportedLanguages = [...new Set(documentSelector.map(s => s.language))];
+
+          if (!supportedLanguages.includes(document.languageId)) {
+            window.showInformationMessage(
+              `This command only works on support files. Current file type: ${document.languageId}`
+            );
+
+            return;
+          }
+
+          uri = document.uri.toString();
+
+          diagnostic = null;
+        }
+
+        if (!uri || typeof uri !== 'string' || uri.trim() === '') {
+          window.showErrorMessage('Failed to get document URI. Please try again.');
+
+          return;
+        }
+
+        try {
+          await client.sendRequest('stylelint/executeAutofix', {uri, diagnostic});
+        }
+        catch (err) {
+          window.showErrorMessage(`Stylelint fix failed: ${err.message}`);
+        }
+      })
+    );
   });
 
   subscriptions.push(new SettingMonitor(client, 'stylelint.enable').start());
