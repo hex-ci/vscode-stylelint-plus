@@ -1,8 +1,9 @@
 'use strict';
 
+const path = require('path');
 const {LanguageClient, SettingMonitor} = require('vscode-languageclient');
 const {workspace, window, StatusBarAlignment, ThemeColor, commands} = require('vscode');
-const {activationEvents} = require('./package.json');
+const {activationEvents} = require('../package.json');
 
 const documentSelector = [];
 
@@ -42,7 +43,7 @@ const setStatusBar = (status = 'ok') => {
 };
 
 exports.activate = ({subscriptions}) => {
-  const serverPath = require.resolve('./server.js');
+  const serverPath = path.join(__dirname, 'server.js');
 
   const client = new LanguageClient('stylelint', {
     run: {

@@ -91,7 +91,7 @@ async function validate(document, isAutoFixOnSave = false) {
       connection.sendRequest('setStatusBarOk');
 
       try {
-        const bundledPkg = require('./package.json');
+        const bundledPkg = require('../package.json');
         detectedStylelintVersion = bundledPkg.dependencies.stylelint.replace(/[\^~]/, '');
         isUsingLocal = false;
       }

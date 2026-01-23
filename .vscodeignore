@@ -1,9 +1,22 @@
-**/*
-!index.js
-!media/icon.png
-!node_modules/**/*
+# Ignore source and dev files
+src/
+scripts/
+test/
+media/
+.vscode/
+.gitignore
+.eslintrc*
+eslint.config.js
+coverage/
+**/*.map
+CLAUDE.local.md
+tsconfig.json
+.stylelintignore
+screenshot.png
+
+# Keep dist and package info
+!dist/**/*.js
 !package.json
 !README.md
-!server.js
-!stylelint-vscode.js
 !LICENSE
+!media/icon.png

@@ -50,7 +50,7 @@
     "onLanguage:xml",
     "onLanguage:xsl"
   ],
-  "main": "index.js",
+  "main": "dist/index.js",
   "contributes": {
     "commands": [
       {
@@ -118,20 +118,16 @@
   },
   "scripts": {
     "lint": "eslint .",
-    "test": "node test/runTest.js"
+    "clean": "rimraf dist",
+    "compile": "node scripts/esbuild.js",
+    "compile:watch": "node scripts/esbuild.js --watch",
+    "build": "npm run clean && npm run compile",
+    "package": "vsce package",
+    "pretest": "npm run compile",
+    "test": "npm run compile && node test/runTest.js"
   },
   "dependencies": {
-    "array-to-error": "^1.1.1",
-    "array-to-sentence": "^2.0.0",
-    "find-pkg-dir": "^2.0.0",
-    "inspect-with-kind": "^1.0.5",
-    "lodash": "^4.17.23",
-    "path-is-inside": "^1.0.2",
-    "stylelint": "^15.11.0",
-    "vscode-languageclient": "^5.2.1",
-    "vscode-languageserver": "^5.2.1",
-    "vscode-languageserver-types": "^3.17.5",
-    "vscode-uri": "^3.1.0"
+    "stylelint": "^15.11.0"
   },
   "peerDependenciesMeta": {
     "stylelint": {
@@ -139,10 +135,22 @@
     }
   },
   "devDependencies": {
-    "@types/vscode": "^1.108.1",
+    "@types/vscode": "^1.35.0",
     "@vscode/test-electron": "^2.5.2",
+    "array-to-error": "^1.1.1",
+    "array-to-sentence": "^2.0.0",
+    "esbuild": "^0.20.0",
     "eslint": "^9.39.2",
+    "find-pkg-dir": "^2.0.0",
+    "inspect-with-kind": "^1.0.5",
+    "lodash": "^4.17.23",
     "p-wait-for": "^3.2.0",
-    "tape": "^4.17.0"
+    "path-is-inside": "^1.0.2",
+    "rimraf": "^5.0.5",
+    "tape": "^4.17.0",
+    "vscode-languageclient": "^5.2.1",
+    "vscode-languageserver": "^5.2.1",
+    "vscode-languageserver-types": "^3.17.5",
+    "vscode-uri": "^3.1.0"
   }
 }
