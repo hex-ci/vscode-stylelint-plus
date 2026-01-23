@@ -8,6 +8,7 @@ const findPkgDir = require('find-pkg-dir');
 const parseUri = require('vscode-uri').URI.parse;
 const pathIsInside = require('path-is-inside');
 const stylelintVSCode = require('./stylelint-vscode');
+const loadStylelint = require('./load-stylelint');
 
 let config;
 let configOverrides;
@@ -260,56 +261,7 @@ async function executeAutofix(uri, diagnostic = null) {
 
     const originalText = document.getText();
 
-    const loadStylelint = async (modulePath) => {
-      if (!modulePath) {
-        return require('stylelint');
-      }
-
-      const pkgJsonPath = join(modulePath, 'package.json');
-
-      if (!fs.existsSync(pkgJsonPath)) {
-        return require('stylelint');
-      }
-
-      const pkgJson = JSON.parse(fs.readFileSync(pkgJsonPath, 'utf8'));
-      const majorVersion = parseInt(pkgJson.version.split('.')[0]);
-
-      if (majorVersion >= 17) {
-        let entryPoint;
-
-        if (pkgJson.exports) {
-          if (typeof pkgJson.exports === 'string') {
-            entryPoint = join(modulePath, pkgJson.exports);
-          }
-          else if (pkgJson.exports['.']) {
-            const dotExport = pkgJson.exports['.'];
-
-            if (typeof dotExport === 'string') {
-              entryPoint = join(modulePath, dotExport);
-            }
-            else if (dotExport.import) {
-              entryPoint = join(modulePath, dotExport.import);
-            }
-            else if (dotExport.default) {
-              entryPoint = join(modulePath, dotExport.default);
-            }
-          }
-        }
-
-        if (!entryPoint) {
-          entryPoint = join(modulePath, pkgJson.module || pkgJson.main || 'index.js');
-        }
-
-        const fileUrl = `file://${entryPoint}`;
-        const esmModule = await import(fileUrl);
-
-        return esmModule.default || esmModule;
-      }
-
-      return require(modulePath);
-    };
-
-    const stylelintModule = await loadStylelint(options.path);
+    const stylelintModule = await loadStylelint(options.path, {fallbackToBundled: true});
     const {lint} = stylelintModule;
 
     if (options.path) {
