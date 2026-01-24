@@ -3,8 +3,9 @@
 const arrayToError = require('array-to-error');
 const arrayToSentence = require('array-to-sentence');
 const {at, has, intersection, isPlainObject, map, stubString} = require('lodash');
-const {Files, TextDocument} = require('vscode-languageserver');
+const {TextDocument} = require('vscode-languageserver');
 const inspectWithKind = require('inspect-with-kind');
+const parseUri = require('vscode-uri').URI.parse;
 const stylelintWarningToVscodeDiagnostic = require('./diagnostic');
 const loadStylelint = require('./load-stylelint');
 
@@ -97,7 +98,7 @@ module.exports = async function stylelintVSCode(...args) {
   const priorOptions = {
     formatter: stubString
   };
-  const codeFilename = Files.uriToFilePath(textDocument.uri);
+  const codeFilename = parseUri(textDocument.uri).fsPath;
   let resultContainer;
 
   if (codeFilename) {

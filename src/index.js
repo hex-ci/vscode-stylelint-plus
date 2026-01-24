@@ -1,8 +1,17 @@
 'use strict';
 
 const path = require('path');
-const {LanguageClient, SettingMonitor} = require('vscode-languageclient');
-const {workspace, window, StatusBarAlignment, ThemeColor, commands} = require('vscode');
+const {
+  LanguageClient,
+  SettingMonitor
+} = require('vscode-languageclient');
+const {
+  workspace,
+  window,
+  StatusBarAlignment,
+  ThemeColor,
+  commands
+} = require('vscode');
 const {activationEvents} = require('../package.json');
 
 const documentSelector = [];

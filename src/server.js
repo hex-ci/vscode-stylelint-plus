@@ -1,9 +1,20 @@
 'use strict';
 
-const {join, parse, resolve} = require('path');
 const fs = require('fs');
-
-const {createConnection, ProposedFeatures, TextDocuments, CodeActionKind} = require('vscode-languageserver');
+const {
+  join,
+  parse,
+  resolve,
+  extname
+} = require('path');
+const {
+  createConnection,
+  ProposedFeatures,
+  TextDocuments,
+  CodeActionKind,
+  TextEdit
+} = require('vscode-languageserver');
+const JsDiff = require('diff');
 const findPkgDir = require('find-pkg-dir');
 const parseUri = require('vscode-uri').URI.parse;
 const pathIsInside = require('path-is-inside');
@@ -97,7 +108,7 @@ async function validate(document, isAutoFixOnSave = false) {
         isUsingLocal = false;
       }
       catch (_err) {
-        detectedStylelintVersion = '16.x';
+        detectedStylelintVersion = '15.x';
         isUsingLocal = false;
       }
     }
@@ -152,48 +163,47 @@ function validateAll() {
   }
 }
 
-function computePartialEdit(uri, originalText, fixedText, diagnostic) {
-  const originalLines = originalText.split('\n');
-  const fixedLines = fixedText.split('\n');
-  const diagnosticLine = diagnostic.range.start.line;
+function isRangeOverlap(range1, range2) {
+  return !(range1.end.line < range2.start.line ||
+           (range1.end.line === range2.start.line && range1.end.character < range2.start.character) ||
+           range1.start.line > range2.end.line ||
+           (range1.start.line === range2.end.line && range1.start.character > range2.end.character));
+}
 
-  let startLine = diagnosticLine;
-  let endLine = diagnosticLine;
+function generateTextEdits(document, originalText, fixedText) {
+  const changes = JsDiff.diffChars(originalText, fixedText);
+  const edits = [];
+  let currentIndex = 0;
 
-  const contextLines = 2;
-  const minLine = Math.max(0, diagnosticLine - contextLines);
-  const maxLine = Math.min(originalLines.length - 1, diagnosticLine + contextLines);
+  for (let i = 0; i < changes.length; i++) {
+    const change = changes[i];
 
-  for (let i = diagnosticLine; i >= minLine; i--) {
-    if (originalLines[i] !== fixedLines[i]) {
-      startLine = i;
+    if (change.added) {
+      const position = document.positionAt(currentIndex);
+
+      edits.push(TextEdit.insert(position, change.value));
+    }
+    else if (change.removed) {
+      const startPos = document.positionAt(currentIndex);
+      const endPos = document.positionAt(currentIndex + change.count);
+
+      let newText = '';
+
+      if (i + 1 < changes.length && changes[i + 1].added) {
+        newText = changes[i + 1].value;
+        i++;
+      }
+
+      edits.push(TextEdit.replace({ start: startPos, end: endPos }, newText));
+
+      currentIndex += change.count;
+    }
+    else {
+      currentIndex += change.count;
     }
   }
 
-  for (let i = diagnosticLine; i <= maxLine; i++) {
-    if (originalLines[i] !== fixedLines[i]) {
-      endLine = i;
-    }
-  }
-
-  if (originalLines[startLine] === fixedLines[startLine] && startLine === endLine) {
-    return null;
-  }
-
-  const endLineChar = originalLines[endLine].length;
-  const newText = fixedLines.slice(startLine, endLine + 1).join('\n');
-
-  return {
-    changes: {
-      [uri]: [{
-        range: {
-          start: {line: startLine, character: 0},
-          end: {line: endLine, character: endLineChar}
-        },
-        newText
-      }]
-    }
-  };
+  return edits;
 }
 
 async function executeAutofix(uri, diagnostic = null) {
@@ -273,7 +283,7 @@ async function executeAutofix(uri, diagnostic = null) {
     }
 
     const codeFilename = parseUri(document.uri).fsPath;
-    const ext = require('path').extname(codeFilename) || '.css';
+    const ext = extname(codeFilename) || '.css';
     const tempFile = join(parse(codeFilename).dir, `_temp_vscode_autofix_${Date.now()}${ext}`);
 
     let output;
@@ -317,7 +327,17 @@ async function executeAutofix(uri, diagnostic = null) {
     let edit;
 
     if (diagnostic) {
-      edit = computePartialEdit(uri, originalText, output, diagnostic);
+      const allEdits = generateTextEdits(document, originalText, output);
+
+      const targetEdits = allEdits.filter((edit) =>
+        isRangeOverlap(edit.range, diagnostic.range)
+      );
+
+      edit = {
+        changes: {
+          [uri]: targetEdits
+        }
+      };
     }
 
     if (!edit) {
@@ -343,10 +363,6 @@ async function executeAutofix(uri, diagnostic = null) {
     if (!applyResult.applied) {
       throw new Error('Failed to apply workspace edit');
     }
-
-    setTimeout(() => {
-      validate(document);
-    }, 100);
   }
   catch (err) {
     connection.console.error(`Autofix error: ${err.message}\n${err.stack}`);
@@ -358,46 +374,28 @@ async function executeAutofix(uri, diagnostic = null) {
 }
 
 connection.onCodeAction(async (params) => {
-  const {textDocument, range, context} = params;
+  const {textDocument, context} = params;
   const diagnostics = context.diagnostics;
   const codeActions = [];
 
   const stylelintDiagnostics = diagnostics.filter(d => d.source === 'stylelint');
 
   if (stylelintDiagnostics.length === 0) {
-    return codeActions;
+    return [];
   }
 
-  const diagnosticsAtCursor = stylelintDiagnostics.filter(d => {
-    return d.range.start.line <= range.start.line &&
-           d.range.end.line >= range.start.line;
-  });
-
-  if (diagnosticsAtCursor.length > 0) {
-    for (const diagnostic of diagnosticsAtCursor) {
-      codeActions.push({
-        title: `Fix: ${diagnostic.message}`,
-        kind: CodeActionKind.QuickFix,
-        diagnostics: [diagnostic],
-        isPreferred: diagnosticsAtCursor.length === 1,
-        command: {
-          command: 'stylelint.executeAutofix',
-          title: 'Fix this stylelint problem',
-          arguments: [textDocument.uri, diagnostic]
-        }
-      });
-    }
+  for (const diagnostic of stylelintDiagnostics) {
+    codeActions.push({
+      title: `Fix: ${diagnostic.message}`,
+      kind: CodeActionKind.QuickFix,
+      diagnostics: [diagnostic],
+      command: {
+        command: 'stylelint.executeAutofix',
+        title: 'Fix this stylelint problem',
+        arguments: [textDocument.uri, diagnostic]
+      }
+    });
   }
-
-  codeActions.push({
-    title: `Fix all auto-fixable stylelint problems (${stylelintDiagnostics.length})`,
-    kind: 'source.fixAll.stylelint',
-    command: {
-      command: 'stylelint.executeAutofix',
-      title: 'Fix all stylelint problems',
-      arguments: [textDocument.uri, null]
-    }
-  });
 
   return codeActions;
 });

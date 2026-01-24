@@ -1,7 +1,12 @@
 'use strict';
 
 const inspectWithKind = require('inspect-with-kind');
-const {Diagnostic, DiagnosticSeverity, Position, Range} = require('vscode-languageserver-types');
+const {
+  Diagnostic,
+  DiagnosticSeverity,
+  Position,
+  Range
+} = require('vscode-languageserver-types');
 
 const NUMBER_PROPERTIES = new Set(['line', 'column']);
 const VALID_SEVERITIES = new Set(['error', 'warning']);
