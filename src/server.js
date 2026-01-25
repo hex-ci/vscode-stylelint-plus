@@ -368,7 +368,7 @@ connection.onRequest('stylelint/executeAutofix', async (params) => {
     return;
   }
 
-  await executeAutofix(uri, diagnostic || null);
+  await executeAutofix(uri, diagnostic);
 });
 
 connection.onInitialize(() => {

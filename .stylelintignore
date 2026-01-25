@@ -1,4 +1,6 @@
 **/*.js
 **/*.md
 **/*.mjs
+**/*.ts
 LICENSE
+node_modules/

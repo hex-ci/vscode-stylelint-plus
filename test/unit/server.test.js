@@ -14,6 +14,8 @@ describe('Server', () => {
   let pathIsInsideStub;
   let fsStub;
   let utilsStub;
+  let pathStub;
+  let parseUriStub;
 
   // Captured event handlers
   let onInitializeHandler;
@@ -88,6 +90,16 @@ describe('Server', () => {
       generateTextEdits: sinon.stub().returns([])
     };
 
+    pathStub = {
+      join: sinon.stub().callsFake((...args) => path.join(...args)),
+      resolve: sinon.stub().callsFake((...args) => path.resolve(...args)),
+      parse: sinon.stub().callsFake((...args) => path.parse(...args)),
+      extname: sinon.stub().callsFake((...args) => path.extname(...args)),
+      sep: path.sep
+    };
+
+    parseUriStub = sinon.stub().callsFake((uri) => ({ fsPath: uri && uri.replace ? uri.replace('file://', '') : uri }));
+
     // Initialize server
     proxyquire('../../src/server', {
       'vscode-languageserver': {
@@ -102,9 +114,10 @@ describe('Server', () => {
       'path-is-inside': pathIsInsideStub,
       'fs': fsStub,
       './utils': utilsStub,
+      'path': pathStub,
       'vscode-uri': {
         URI: {
-          parse: (uri) => ({ fsPath: uri.replace('file://', '') })
+          parse: parseUriStub
         }
       }
     });
@@ -214,6 +227,19 @@ describe('Server', () => {
       assert.isTrue(connectionMock.window.showErrorMessage.calledWith(sinon.match('stylelint: Config error')));
     });
 
+    it('should handle validation error with reasons property', async () => {
+      const document = { uri: 'file:///test.css', getText: () => 'css content' };
+      const error = new Error('Validation failed');
+      error.reasons = ['Reason 1', 'Reason 2'];
+      stylelintVSCodeStub.rejects(error);
+
+      onDidChangeConfigurationHandler({ settings: { stylelint: {} } });
+      await onDidChangeContentHandler({ document });
+
+      assert.isTrue(connectionMock.window.showErrorMessage.calledWith('stylelint: Reason 1'));
+      assert.isTrue(connectionMock.window.showErrorMessage.calledWith('stylelint: Reason 2'));
+    });
+
     it('should use provided config and overrides in validate', async () => {
       const document = { uri: 'file:///test.css', getText: () => 'css content' };
 
@@ -239,18 +265,66 @@ describe('Server', () => {
 
       // Reset findPkgDirStub to be clean
       findPkgDirStub.reset();
+      // 1. For ignorePath
       findPkgDirStub.onFirstCall().returns('/project/subdir');
-      findPkgDirStub.onSecondCall().returns('/project');
+      // 2. For loop start
+      findPkgDirStub.onSecondCall().returns('/project/subdir');
+      // 3. For next loop
+      findPkgDirStub.onThirdCall().returns('/project');
       findPkgDirStub.returns(null);
 
-      fsStub.existsSync.withArgs('/project/subdir/node_modules/stylelint').returns(false);
-      fsStub.existsSync.withArgs('/project/node_modules/stylelint').returns(true);
+      // Reset existsSync to default to false to prevent accidental true returns
+      fsStub.existsSync.reset();
+      fsStub.existsSync.returns(false);
+
+      const subdirPath = path.join('/project/subdir', 'node_modules', 'stylelint');
+      const rootPath = path.join('/project', 'node_modules', 'stylelint');
+
+      fsStub.existsSync.withArgs(subdirPath).returns(false);
+      fsStub.existsSync.withArgs(rootPath).returns(true);
+
       fsStub.readFileSync.withArgs(sinon.match('package.json'), 'utf8').returns('{"version": "1.0.0"}');
 
       onDidChangeConfigurationHandler({ settings: { stylelint: { useLocal: true } } });
       await onDidChangeContentHandler({ document });
 
       assert.isTrue(connectionMock.sendNotification.calledWith('stylelint/versionDetected', sinon.match({ version: '1.0.0' })));
+      // Check with match to debug
+      assert.isTrue(fsStub.existsSync.calledWith(sinon.match('subdir')), 'Should check subdir');
+      assert.isTrue(fsStub.existsSync.calledWith(sinon.match(rootPath)), 'Should check root');
+    });
+
+    it('should handle falsy documentPath in validate', async () => {
+      const document = { uri: 'scheme://test', getText: () => 'css content' };
+      parseUriStub.returns({ fsPath: null });
+
+      await onDidChangeContentHandler({ document });
+
+      assert.isTrue(stylelintVSCodeStub.called);
+      const options = stylelintVSCodeStub.firstCall.args[1];
+      assert.isUndefined(options.ignorePath);
+    });
+
+    it('should handle document outside workspace', async () => {
+      const document = { uri: 'file:///outside/test.css', getText: () => 'css content' };
+      connectionMock.workspace.getWorkspaceFolders.resolves([{ uri: 'file:///workspace' }]);
+      pathIsInsideStub.returns(false);
+      findPkgDirStub.returns('/outside');
+
+      await onDidChangeContentHandler({ document });
+
+      const options = stylelintVSCodeStub.firstCall.args[1];
+      assert.equal(options.ignorePath, path.join('/outside', '.stylelintignore'));
+    });
+
+    it('should handle missing workspace folders in validate', async () => {
+      const document = { uri: 'file:///test.css', getText: () => 'css content' };
+      connectionMock.workspace.getWorkspaceFolders.resolves(null);
+
+      await onDidChangeContentHandler({ document });
+
+      const options = stylelintVSCodeStub.firstCall.args[1];
+      assert.isDefined(options.ignorePath);
     });
 
     it('should handle package.json read error in validate', async () => {
@@ -445,12 +519,25 @@ describe('Server', () => {
       documentsMock.get.returns(document);
 
       // Simulate finding stylelint in parent directory
+      findPkgDirStub.reset();
+      // 1. For ignorePath
       findPkgDirStub.onFirstCall().returns('/project/subdir');
-      findPkgDirStub.onSecondCall().returns('/project');
-      findPkgDirStub.onThirdCall().returns(null);
+      // 2. For loop start
+      findPkgDirStub.onSecondCall().returns('/project/subdir');
+      // 3. For next loop
+      findPkgDirStub.onThirdCall().returns('/project');
+      findPkgDirStub.returns(null);
 
-      fsStub.existsSync.withArgs('/project/subdir/node_modules/stylelint').returns(false);
-      fsStub.existsSync.withArgs('/project/node_modules/stylelint').returns(true);
+      // Reset existsSync to default to false
+      fsStub.existsSync.reset();
+      fsStub.existsSync.returns(false);
+
+      const subdirPath = path.join('/project/subdir', 'node_modules', 'stylelint');
+      const rootPath = path.join('/project', 'node_modules', 'stylelint');
+
+      fsStub.existsSync.withArgs(subdirPath).returns(false);
+      fsStub.existsSync.withArgs(rootPath).returns(true);
+
       fsStub.readFileSync.withArgs(sinon.match('package.json'), 'utf8').returns('{}');
 
       loadStylelintStub.resolves({ lint: sinon.stub().resolves({}) });
@@ -459,7 +546,8 @@ describe('Server', () => {
       onDidChangeConfigurationHandler({ settings: { stylelint: { useLocal: true } } });
       await onExecuteAutofixHandler({ uri: 'file:///project/subdir/test.css' });
 
-      assert.isTrue(loadStylelintStub.calledWith(path.join('/project/node_modules/stylelint')));
+      assert.isTrue(loadStylelintStub.calledWith(rootPath));
+      assert.isTrue(fsStub.existsSync.calledWith(sinon.match('subdir')));
     });
 
     it('should handle undefined output from stylelint', async () => {
@@ -476,6 +564,49 @@ describe('Server', () => {
       assert.isFalse(connectionMock.workspace.applyEdit.called);
     });
 
+    it('should ignore empty config object', async () => {
+      const document = { uri: 'file:///test.css', getText: () => 'css content' };
+      documentsMock.get.returns(document);
+      loadStylelintStub.resolves({ lint: sinon.stub().resolves({}) });
+      fsStub.readFileSync.withArgs(sinon.match('_temp_vscode_autofix_'), 'utf8').returns('fixed');
+
+      onDidChangeConfigurationHandler({
+        settings: {
+          stylelint: {
+            config: {} // Empty config
+          }
+        }
+      });
+
+      await onExecuteAutofixHandler({ uri: 'file:///test.css' });
+    });
+
+    it('should use default extension if none provided', async () => {
+      const document = { uri: 'file:///test', getText: () => 'css content' }; // No extension
+      documentsMock.get.returns(document);
+      loadStylelintStub.resolves({ lint: sinon.stub().resolves({}) });
+      fsStub.readFileSync.returns('fixed');
+
+      pathStub.extname.returns(''); // Force empty extension
+
+      await onExecuteAutofixHandler({ uri: 'file:///test' });
+
+      const tempFile = fsStub.writeFileSync.firstCall.args[0];
+      assert.match(tempFile, /\.css$/);
+    });
+
+    it('should show error message if autofix fails and disableErrorMessage is false', async () => {
+      const document = { uri: 'file:///test.css', getText: () => 'css content' };
+      documentsMock.get.returns(document);
+      loadStylelintStub.rejects(new Error('Fail'));
+
+      onDidChangeConfigurationHandler({ settings: { stylelint: { disableErrorMessage: false } } });
+
+      await onExecuteAutofixHandler({ uri: 'file:///test.css' });
+
+      assert.isTrue(connectionMock.window.showErrorMessage.called);
+    });
+
     it('should handle local stylelint not found in executeAutofix', async () => {
       const document = { uri: 'file:///project/test.css', getText: () => 'css content' };
       documentsMock.get.returns(document);
@@ -486,6 +617,71 @@ describe('Server', () => {
       await onExecuteAutofixHandler({ uri: 'file:///project/test.css' });
 
       assert.isTrue(connectionMock.window.showErrorMessage.calledWith(sinon.match('Local stylelint not found')));
+    });
+
+    it('should use default diagnostic in executeAutofix', async () => {
+      const document = { uri: 'file:///test.css', getText: () => 'css content' };
+      documentsMock.get.returns(document);
+      loadStylelintStub.resolves({ lint: sinon.stub().resolves({}) });
+      fsStub.readFileSync.returns('fixed');
+
+      // Call without diagnostic property
+      await onExecuteAutofixHandler({ uri: 'file:///test.css' });
+
+      assert.isTrue(connectionMock.workspace.applyEdit.called);
+    });
+
+    it('should handle falsy documentPath in executeAutofix', async () => {
+      const document = { uri: 'scheme://test', getText: () => 'css content' };
+      documentsMock.get.returns(document);
+      // Force falsy path
+      parseUriStub.withArgs('scheme://test').returns({ fsPath: null });
+
+      loadStylelintStub.resolves({ lint: sinon.stub().resolves({}) });
+      fsStub.readFileSync.returns('fixed');
+
+      await onExecuteAutofixHandler({ uri: 'scheme://test' });
+
+      assert.isTrue(loadStylelintStub.called);
+    });
+
+    it('should handle missing workspace folders in executeAutofix', async () => {
+      const document = { uri: 'file:///test.css', getText: () => 'css content' };
+      documentsMock.get.returns(document);
+      connectionMock.workspace.getWorkspaceFolders.resolves(null);
+
+      loadStylelintStub.resolves({ lint: sinon.stub().resolves({}) });
+      fsStub.readFileSync.returns('fixed');
+
+      await onExecuteAutofixHandler({ uri: 'file:///test.css' });
+      assert.isTrue(loadStylelintStub.called);
+    });
+
+    it('should suppress error message in autofix if disableErrorMessage is true', async () => {
+      const document = { uri: 'file:///test.css', getText: () => 'css content' };
+      documentsMock.get.returns(document);
+      loadStylelintStub.rejects(new Error('Fail'));
+
+      onDidChangeConfigurationHandler({ settings: { stylelint: { disableErrorMessage: true } } });
+
+      await onExecuteAutofixHandler({ uri: 'file:///test.css' });
+
+      assert.isFalse(connectionMock.window.showErrorMessage.called);
+    });
+
+    it('should handle document outside workspace folders in executeAutofix', async () => {
+      const document = { uri: 'file:///outside/test.css', getText: () => 'css content' };
+      documentsMock.get.returns(document);
+      connectionMock.workspace.getWorkspaceFolders.resolves([{ uri: 'file:///workspace' }]);
+      pathIsInsideStub.returns(false);
+      findPkgDirStub.returns('/outside');
+
+      loadStylelintStub.resolves({ lint: sinon.stub().resolves({}) });
+      fsStub.readFileSync.returns('fixed');
+
+      await onExecuteAutofixHandler({ uri: 'file:///outside/test.css' });
+
+      assert.isTrue(loadStylelintStub.called);
     });
   });
 

@@ -21,10 +21,10 @@ describe('Extension Activation', () => {
       onNotification: sinon.stub()
     };
 
-    const LanguageClientConstructor = function() {
+    const LanguageClientConstructor = sinon.spy(function() {
       languageClientCalled = true;
       return clientInstanceMock;
-    };
+    });
 
     languageClientMock = {
       LanguageClient: LanguageClientConstructor,
@@ -235,5 +235,37 @@ describe('Extension Activation', () => {
     versionDetected({ version: '1.2.3', isLocal: true });
     // Check status bar text for version info
     assert.include(vscodeMock.window.createStatusBarItem().text, 'local v1.2.3');
+
+    // Test bundled version
+    versionDetected({ version: '4.5.6', isLocal: false });
+    assert.include(vscodeMock.window.createStatusBarItem().text, 'bundled v4.5.6');
+    assert.include(vscodeMock.window.createStatusBarItem().tooltip, 'Using bundled stylelint 4.5.6');
+
+    // Test error with version info
+    setStatusBarError();
+    assert.include(vscodeMock.window.createStatusBarItem().text, '$(error) Stylelint+ (bundled v4.5.6)');
+    assert.include(vscodeMock.window.createStatusBarItem().tooltip, 'Stylelint+ server stopped (bundled v4.5.6)');
+  });
+
+  it('should ignore non-language activation events', () => {
+    // Need to reload/re-proxyquire to change package.json
+    const { activate } = proxyquire('../../src/index', {
+      'vscode': vscodeMock,
+      'vscode-languageclient': languageClientMock,
+      'path': { join: (...args) => args.join('/') },
+      '../package.json': {
+        activationEvents: ['onLanguage:css', 'workspaceContains:.stylelintrc']
+      }
+    });
+
+    activate({ subscriptions: [] });
+
+    const clientOptions = languageClientMock.LanguageClient.firstCall.args[2];
+    const selector = clientOptions.documentSelector;
+
+    // Should only contain css entries (file and untitled), not workspaceContains
+    assert.equal(selector.length, 2);
+    assert.deepEqual(selector[0], { language: 'css', scheme: 'file' });
+    assert.deepEqual(selector[1], { language: 'css', scheme: 'untitled' });
   });
 });
