@@ -6,7 +6,7 @@
 
 A [Visual Studio Code](https://code.visualstudio.com/) extension to lint [CSS](https://www.w3.org/Style/CSS/)/[SCSS](https://sass-lang.com/documentation/file.SASS_REFERENCE.html#syntax)/[Less](http://lesscss.org/) with [stylelint](https://stylelint.io/), support auto fix on save.
 
-![screenshot](https://github.com/hex-ci/vscode-stylelint-plus/raw/master/screenshot.png)
+![screenshot](https://github.com/hex-ci/vscode-stylelint-plus/raw/main/screenshot.png)
 
 ## Installation
 
@@ -17,7 +17,7 @@ Read the [extension installation guide](https://code.visualstudio.com/docs/edito
 
 ### Optional (but recommended) setup
 
-<img align="right" width="430" alt="duplicate messages from both the built-in linter and vscode-stylelint-plus" src="https://raw.githubusercontent.com/hex-ci/vscode-stylelint-plus/master/media/duplicate.png">
+<img align="right" width="430" alt="duplicate messages from both the built-in linter and vscode-stylelint-plus" src="https://raw.githubusercontent.com/hex-ci/vscode-stylelint-plus/main/media/duplicate.png">
 
 To prevent both [the editor built-in linters](https://code.visualstudio.com/docs/languages/css#_syntax-verification-linting) `[css]` `[less]` `[scss]` and this extension `[stylelint]` from reporting essentially the same errors like in the screenshot, disable the built-in ones in User or Workspace [setting](https://code.visualstudio.com/docs/getstarted/settings):
 
@@ -120,7 +120,7 @@ This allows you to catch syntax errors even before setting up full stylelint rul
 
 Once a user follows [the stylelint startup guide](https://github.com/stylelint/stylelint#getting-started) by creating a [configuration](https://stylelint.io/user-guide/configuration/) file or by editing [`stylelint.*` VSCode settings](#extension-settings), stylelint automatically validates documents with these [language identifiers](https://code.visualstudio.com/docs/languages/overview#_language-id):
 
-<img align="right" width="430" alt="UI to select a language identifier" src="https://raw.githubusercontent.com/hex-ci/vscode-stylelint-plus/master/media/language.png">
+<img align="right" width="430" alt="UI to select a language identifier" src="https://raw.githubusercontent.com/hex-ci/vscode-stylelint-plus/main/media/language.png">
 
 * CSS (`css`)
 * HTML (`html`)
@@ -168,7 +168,7 @@ Automatically fix all auto-fixable stylelint issues when saving a file.
 Type: `Object`
 Default: `null`
 
-Set stylelint [`configOverrides`](https://github.com/stylelint/stylelint/blob/master/docs/user-guide/node-api.md#configoverrides) option. This partially overrides the existing configuration loaded from config files.
+Set stylelint [`configOverrides`](https://github.com/stylelint/stylelint/blob/main/docs/user-guide/node-api.md#configoverrides) option. This partially overrides the existing configuration loaded from config files.
 
 **Example**:
 ```json
@@ -186,7 +186,7 @@ Set stylelint [`configOverrides`](https://github.com/stylelint/stylelint/blob/ma
 Type: `Object`
 Default: `null`
 
-Set stylelint [`config`](https://github.com/stylelint/stylelint/blob/master/docs/user-guide/node-api.md#config) option.
+Set stylelint [`config`](https://github.com/stylelint/stylelint/blob/main/docs/user-guide/node-api.md#config) option.
 
 **Important**: When this option is set, stylelint **will not** load configuration files (`.stylelintrc`, `stylelint.config.js`, etc.). Use `configOverrides` if you want to extend an existing configuration instead.
 
