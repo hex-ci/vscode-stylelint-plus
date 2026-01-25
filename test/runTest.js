@@ -9,7 +9,7 @@ async function main() {
     const extensionDevelopmentPath = path.resolve(__dirname, '..');
 
     // 测试文件路径
-    const extensionTestsPath = path.resolve(__dirname, './index');
+    const extensionTestsPath = path.resolve(__dirname, './suite/index');
 
     // 运行测试
     await runTests({

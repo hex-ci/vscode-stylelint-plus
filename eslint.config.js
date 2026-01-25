@@ -76,7 +76,9 @@ module.exports = [
         before: 'readonly',
         after: 'readonly',
         beforeEach: 'readonly',
-        afterEach: 'readonly'
+        afterEach: 'readonly',
+        suite: 'readonly',
+        test: 'readonly'
       }
     }
   }
