@@ -125,6 +125,7 @@
     "package": "vsce package",
     "pretest": "npm run compile",
     "test": "npm run compile && node test/runTest.js",
+    "linux:test": "xvfb-run -a npm test",
     "test:unit": "mocha test/unit/*.test.js",
     "coverage": "nyc npm run test:unit"
   },

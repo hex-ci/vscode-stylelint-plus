@@ -55,6 +55,28 @@ describe('stylelintWarningToVscodeDiagnostic', () => {
     assert.throws(() => stylelintWarningToVscodeDiagnostic(warning), TypeError);
   });
 
+  it('should throw if text is not a string', () => {
+    const warning = {
+      line: 1,
+      column: 1,
+      rule: 'foo',
+      severity: 'error',
+      text: 123
+    };
+    assert.throws(() => stylelintWarningToVscodeDiagnostic(warning), TypeError, /`text` property/);
+  });
+
+  it('should throw if severity is not a string', () => {
+    const warning = {
+      line: 1,
+      column: 1,
+      rule: 'foo',
+      severity: 123,
+      text: 'bar'
+    };
+    assert.throws(() => stylelintWarningToVscodeDiagnostic(warning), TypeError, /`severity` property/);
+  });
+
   it('should throw if severity is invalid', () => {
     const warning = {
       line: 1,

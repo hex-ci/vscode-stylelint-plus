@@ -70,17 +70,154 @@ describe('loadStylelint', () => {
 
     const result = await loadStylelint(modulePath);
 
-    // Dynamic import of CJS module returns object with 'default' property equal to module.exports
-    // But loadStylelint handles this: return esmModule.default || esmModule;
-    // However, if the module.exports is the object, import() returns a module namespace object.
-    // The module namespace object has 'default' if the CJS module exports a default, or it maps named exports.
-    // Actually, for CJS import, 'default' IS the module.exports.
-
-    // Let's verify what we get. The fixture exports { version: '16.0.0', lint: ... }
-    // Since we mocked readFileSync, loadStylelint thinks it is v17.
-    // It loads the file. The file content says version: '16.0.0'.
+    // Verify that a CJS module mock is correctly loaded even when mocked as v17
+    // The fixture exports { version: '16.0.0', lint: ... }
 
     assert.equal(result.version, '16.0.0');
+    assert.equal(result.lint(), 'mock-lint-result');
+  });
+
+  it('should support exports as string', async () => {
+    const modulePath = path.resolve(__dirname, 'fixtures/mock-stylelint');
+    const pkgJsonPath = path.join(modulePath, 'package.json');
+
+    fsStub.existsSync.withArgs(pkgJsonPath).returns(true);
+    fsStub.readFileSync.withArgs(pkgJsonPath, 'utf8').returns(JSON.stringify({
+      version: '17.0.0',
+      exports: './index.js'
+    }));
+
+    const result = await loadStylelint(modulePath);
+    assert.equal(result.version, '16.0.0');
+  });
+
+  it('should support exports as object with dot and string', async () => {
+    const modulePath = path.resolve(__dirname, 'fixtures/mock-stylelint');
+    const pkgJsonPath = path.join(modulePath, 'package.json');
+
+    fsStub.existsSync.withArgs(pkgJsonPath).returns(true);
+    fsStub.readFileSync.withArgs(pkgJsonPath, 'utf8').returns(JSON.stringify({
+      version: '17.0.0',
+      exports: {
+        '.': './index.js'
+      }
+    }));
+
+    const result = await loadStylelint(modulePath);
+    assert.equal(result.version, '16.0.0');
+  });
+
+  it('should support exports as object with dot and import', async () => {
+    const modulePath = path.resolve(__dirname, 'fixtures/mock-stylelint');
+    const pkgJsonPath = path.join(modulePath, 'package.json');
+
+    fsStub.existsSync.withArgs(pkgJsonPath).returns(true);
+    fsStub.readFileSync.withArgs(pkgJsonPath, 'utf8').returns(JSON.stringify({
+      version: '17.0.0',
+      exports: {
+        '.': {
+          import: './index.js'
+        }
+      }
+    }));
+
+    const result = await loadStylelint(modulePath);
+    assert.equal(result.version, '16.0.0');
+  });
+
+  it('should support exports as object with dot and default', async () => {
+    const modulePath = path.resolve(__dirname, 'fixtures/mock-stylelint');
+    const pkgJsonPath = path.join(modulePath, 'package.json');
+
+    fsStub.existsSync.withArgs(pkgJsonPath).returns(true);
+    fsStub.readFileSync.withArgs(pkgJsonPath, 'utf8').returns(JSON.stringify({
+      version: '17.0.0',
+      exports: {
+        '.': {
+          default: './index.js'
+        }
+      }
+    }));
+
+    const result = await loadStylelint(modulePath);
+    assert.equal(result.version, '16.0.0');
+  });
+
+  it('should fall back to main if exports does not have dot export', async () => {
+    const modulePath = path.resolve(__dirname, 'fixtures/mock-stylelint');
+    const pkgJsonPath = path.join(modulePath, 'package.json');
+
+    fsStub.existsSync.withArgs(pkgJsonPath).returns(true);
+    fsStub.readFileSync.withArgs(pkgJsonPath, 'utf8').returns(JSON.stringify({
+      version: '17.0.0',
+      main: './index.js',
+      exports: {
+        './foo': './foo.js'
+      }
+    }));
+
+    const result = await loadStylelint(modulePath);
+    assert.equal(result.version, '16.0.0');
+  });
+
+  it('should fall back to main if exports dot export has no import or default', async () => {
+    const modulePath = path.resolve(__dirname, 'fixtures/mock-stylelint');
+    const pkgJsonPath = path.join(modulePath, 'package.json');
+
+    fsStub.existsSync.withArgs(pkgJsonPath).returns(true);
+    fsStub.readFileSync.withArgs(pkgJsonPath, 'utf8').returns(JSON.stringify({
+      version: '17.0.0',
+      main: './index.js',
+      exports: {
+        '.': {
+          types: './index.d.ts'
+        }
+      }
+    }));
+
+    const result = await loadStylelint(modulePath);
+    assert.equal(result.version, '16.0.0');
+  });
+
+  it('should fall back to module field if no exports and no main', async () => {
+    const modulePath = path.resolve(__dirname, 'fixtures/mock-stylelint');
+    const pkgJsonPath = path.join(modulePath, 'package.json');
+
+    fsStub.existsSync.withArgs(pkgJsonPath).returns(true);
+    fsStub.readFileSync.withArgs(pkgJsonPath, 'utf8').returns(JSON.stringify({
+      version: '17.0.0',
+      module: './index.js'
+    }));
+
+    const result = await loadStylelint(modulePath);
+    assert.equal(result.version, '16.0.0');
+  });
+
+  it('should fall back to index.js if no exports, main, or module', async () => {
+    const modulePath = path.resolve(__dirname, 'fixtures/mock-stylelint');
+    const pkgJsonPath = path.join(modulePath, 'package.json');
+
+    fsStub.existsSync.withArgs(pkgJsonPath).returns(true);
+    fsStub.readFileSync.withArgs(pkgJsonPath, 'utf8').returns(JSON.stringify({
+      version: '17.0.0'
+    }));
+
+    const result = await loadStylelint(modulePath);
+    assert.equal(result.version, '16.0.0');
+  });
+
+  it('should handle ESM module with no default export', async () => {
+    const modulePath = path.resolve(__dirname, 'fixtures/mock-stylelint-esm-no-default');
+    const pkgJsonPath = path.join(modulePath, 'package.json');
+
+    fsStub.existsSync.withArgs(pkgJsonPath).returns(true);
+    // We read the real package.json here because we want the real ESM loading behavior
+    const realPkgJson = require(pkgJsonPath);
+    fsStub.readFileSync.withArgs(pkgJsonPath, 'utf8').returns(JSON.stringify(realPkgJson));
+
+    const result = await loadStylelint(modulePath);
+    // When no default export, it should return the namespace object which has the named exports
+    assert.equal(result.version, '17.0.0');
     assert.equal(result.lint(), 'mock-lint-result');
   });
 });

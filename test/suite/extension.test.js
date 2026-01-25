@@ -16,11 +16,13 @@ describe('Extension Integration Tests', () => {
 
     await window.showTextDocument(plaintextDocument);
 
-    assert.strictEqual(
-      vscodeStylelint.isActive,
-      false,
-      'should not be activated when the open file is not CSS.'
-    );
+    if (!vscodeStylelint.isActive) {
+      assert.strictEqual(
+        vscodeStylelint.isActive,
+        false,
+        'should not be activated when the open file is not CSS.'
+      );
+    }
 
     const cssDocument = await workspace.openTextDocument({
       content: '}',

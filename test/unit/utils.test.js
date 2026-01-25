@@ -20,12 +20,7 @@ describe('Utils', () => {
     it('should handle thresholds', () => {
       const r1 = { start: { line: 0, character: 0 }, end: { line: 0, character: 5 } };
       const r2 = { start: { line: 0, character: 7 }, end: { line: 0, character: 10 } };
-      // Gap is 2 chars. With threshold 2, they should overlap?
-      // isRangeOverlap implementation expands r1 by threshold.
-      // expandedEndChar = 5 + 2 = 7.
-      // r2.start.character is 7.
-      // expandedEndChar (7) < r2.start.character (7) is false.
-      // So they touch/overlap.
+      // Gap is 2 chars. With threshold 2, they should touch/overlap.
       assert.isTrue(isRangeOverlap(r1, r2, 0, 2));
     });
   });
@@ -34,7 +29,6 @@ describe('Utils', () => {
     // Mock document
     const document = {
       positionAt: (offset) => {
-        // Simple mock assuming 1 line for simplicity, or we can just return offset
         return { line: 0, character: offset };
       }
     };
