@@ -32,6 +32,64 @@ const connection = createConnection(ProposedFeatures.all);
 const documents = new TextDocuments();
 const documentDiagnostics = new Map();
 
+async function resolveStylelintOptions(documentPath) {
+  let stopPath = null;
+  const workspaceFolders = await connection.workspace.getWorkspaceFolders();
+
+  if (workspaceFolders) {
+    for (const {uri} of workspaceFolders) {
+      const workspacePath = parseUri(uri).fsPath;
+
+      if (pathIsInside(documentPath, workspacePath)) {
+        stopPath = workspacePath;
+        break;
+      }
+    }
+  }
+
+  if (!stopPath) {
+    stopPath = findPkgDir(documentPath) || parse(documentPath).root;
+  }
+
+  const normalizedStopPath = stopPath.replace(/[\/\\]+$/, '');
+  const normalizedDocDir = parse(documentPath).dir.replace(/[\/\\]+$/, '');
+
+  // Look for closest .stylelintignore up to stopPath
+  let dir = normalizedDocDir;
+  let ignorePath = join(normalizedStopPath, '.stylelintignore');
+
+  while (dir && dir !== normalizedStopPath) {
+    const candidate = join(dir, '.stylelintignore');
+
+    if (fs.existsSync(candidate)) {
+      ignorePath = candidate;
+      break;
+    }
+
+    dir = parse(dir).dir;
+  }
+
+  const result = {ignorePath};
+
+  if (useLocal) {
+    let localDir;
+    let startDir = documentPath;
+
+    while ((localDir = findPkgDir(startDir))) {
+      const localPath = join(localDir, 'node_modules', 'stylelint');
+
+      if (fs.existsSync(localPath)) {
+        result.path = localPath;
+        break;
+      }
+
+      startDir = resolve(localDir, '..');
+    }
+  }
+
+  return result;
+}
+
 async function validate(document, isAutoFixOnSave = false) {
   const options = {
     fix: isAutoFixOnSave
@@ -48,45 +106,20 @@ async function validate(document, isAutoFixOnSave = false) {
   const documentPath = parseUri(document.uri).fsPath;
 
   if (documentPath) {
-    const workspaceFolders = await connection.workspace.getWorkspaceFolders();
+    const {ignorePath, path: stylelintPath} = await resolveStylelintOptions(documentPath);
 
-    if (workspaceFolders) {
-      for (const {uri} of workspaceFolders) {
-        const workspacePath = parseUri(uri).fsPath;
-
-        if (pathIsInside(documentPath, workspacePath)) {
-          options.ignorePath = join(workspacePath, '.stylelintignore');
-          break;
-        }
-      }
-    }
-
-    if (options.ignorePath === undefined) {
-      options.ignorePath = join(findPkgDir(documentPath) || parse(documentPath).root, '.stylelintignore');
-    }
+    options.ignorePath = ignorePath;
 
     if (useLocal) {
-      let dir;
-      let startDir = documentPath;
-
-      while ((dir = findPkgDir(startDir))) {
-        const localPath = join(dir, 'node_modules', 'stylelint');
-
-        if (fs.existsSync(localPath)) {
-          options.path = localPath;
-          break;
-        }
-
-        startDir = resolve(dir, '..');
-      }
-
-      if (!options.path) {
+      if (!stylelintPath) {
         connection.sendRequest('setStatusBarError');
         return;
       }
 
+      options.path = stylelintPath;
+
       try {
-        const pkgPath = join(options.path, 'package.json');
+        const pkgPath = join(stylelintPath, 'package.json');
         const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
 
         detectedStylelintVersion = pkg.version;
@@ -186,42 +219,17 @@ async function executeAutofix(uri, diagnostic = null) {
     }
 
     if (documentPath) {
-      const workspaceFolders = await connection.workspace.getWorkspaceFolders();
+      const {ignorePath, path: stylelintPath} = await resolveStylelintOptions(documentPath);
 
-      if (workspaceFolders) {
-        for (const {uri: wsUri} of workspaceFolders) {
-          const workspacePath = parseUri(wsUri).fsPath;
-
-          if (pathIsInside(documentPath, workspacePath)) {
-            options.ignorePath = join(workspacePath, '.stylelintignore');
-            break;
-          }
-        }
-      }
-
-      if (options.ignorePath === undefined) {
-        options.ignorePath = join(findPkgDir(documentPath) || parse(documentPath).root, '.stylelintignore');
-      }
+      options.ignorePath = ignorePath;
 
       if (useLocal) {
-        let dir;
-        let startDir = documentPath;
-
-        while ((dir = findPkgDir(startDir))) {
-          const localPath = join(dir, 'node_modules', 'stylelint');
-
-          if (fs.existsSync(localPath)) {
-            options.path = localPath;
-            break;
-          }
-
-          startDir = resolve(dir, '..');
-        }
-
-        if (!options.path) {
+        if (!stylelintPath) {
           connection.sendRequest('setStatusBarError');
-          throw new Error('Local stylelint not found');
+          connection.window.showErrorMessage('Local stylelint not found');
+          return;
         }
+        options.path = stylelintPath;
       }
     }
 

@@ -36,7 +36,7 @@ describe('Extension Integration Tests', () => {
   });
 
   it('should add syntax highlighting to .stylelintignore', async () => {
-    const doc = await workspace.openTextDocument(join(__dirname, '../.stylelintignore'));
+    const doc = await workspace.openTextDocument(join(__dirname, '../../.stylelintignore'));
     assert.strictEqual(
       doc.languageId,
       'ignore',

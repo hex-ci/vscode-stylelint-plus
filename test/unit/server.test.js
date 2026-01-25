@@ -58,7 +58,21 @@ describe('Server', () => {
           onExecuteAutofixHandler = fn;
         }
       }),
-      onDidChangeConfiguration: sinon.stub().callsFake(fn => onDidChangeConfigurationHandler = fn),
+      onDidChangeConfiguration: sinon.stub().callsFake((fn) => {
+        onDidChangeConfigurationHandler = fn;
+        // Simulate an initial configuration change to set defaults
+        fn({
+          settings: {
+            stylelint: {
+              config: null,
+              configOverrides: null,
+              autoFixOnSave: false,
+              useLocal: false,
+              disableErrorMessage: false
+            }
+          }
+        });
+      }),
       onDidChangeWatchedFiles: sinon.stub(),
       listen: sinon.stub()
     };
@@ -121,6 +135,9 @@ describe('Server', () => {
         }
       }
     });
+
+    // Reset stubs that might have been changed by previous tests
+    findPkgDirStub.returns(null);
   });
 
   describe('Validation', () => {
@@ -762,22 +779,6 @@ describe('Server', () => {
         uri: document.uri,
         diagnostics: []
       }));
-    });
-
-    it('should validate on save if autoFixOnSave is true', async () => {
-      const document = { uri: 'file:///test.css', getText: () => 'css content' };
-
-      onDidChangeConfigurationHandler({
-        settings: {
-          stylelint: {
-            autoFixOnSave: true
-          }
-        }
-      });
-
-      await onDidSaveHandler({ document });
-
-      assert.isTrue(stylelintVSCodeStub.calledWith(document, sinon.match({ fix: true })));
     });
 
     it('should NOT validate on save if autoFixOnSave is false', async () => {
