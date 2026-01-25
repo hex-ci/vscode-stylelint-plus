@@ -163,11 +163,21 @@ function validateAll() {
   }
 }
 
-function isRangeOverlap(range1, range2) {
-  return !(range1.end.line < range2.start.line ||
-           (range1.end.line === range2.start.line && range1.end.character < range2.start.character) ||
-           range1.start.line > range2.end.line ||
-           (range1.start.line === range2.end.line && range1.start.character > range2.end.character));
+function isRangeOverlap(r1, r2, lineThreshold = 0, charThreshold = 0) {
+  const expandedStartLine = r1.start.line - lineThreshold;
+  const expandedStartChar = r1.start.character - charThreshold;
+  const expandedEndLine = r1.end.line + lineThreshold;
+  const expandedEndChar = r1.end.character + charThreshold;
+
+  const isBefore =
+    expandedEndLine < r2.start.line ||
+    (expandedEndLine === r2.start.line && expandedEndChar < r2.start.character);
+
+  const isAfter =
+    expandedStartLine > r2.end.line ||
+    (expandedStartLine === r2.end.line && expandedStartChar > r2.end.character);
+
+  return !(isBefore || isAfter);
 }
 
 function generateTextEdits(document, originalText, fixedText) {
@@ -330,7 +340,7 @@ async function executeAutofix(uri, diagnostic = null) {
       const allEdits = generateTextEdits(document, originalText, output);
 
       const targetEdits = allEdits.filter((edit) =>
-        isRangeOverlap(edit.range, diagnostic.range)
+        isRangeOverlap(edit.range, diagnostic.range , 1, 2)
       );
 
       edit = {
