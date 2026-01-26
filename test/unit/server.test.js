@@ -125,7 +125,6 @@ describe('Server', () => {
       './stylelint-vscode': stylelintVSCodeStub,
       './load-stylelint': loadStylelintStub,
       'find-pkg-dir': findPkgDirStub,
-      'path-is-inside': pathIsInsideStub,
       'fs': fsStub,
       './utils': utilsStub,
       'path': pathStub,

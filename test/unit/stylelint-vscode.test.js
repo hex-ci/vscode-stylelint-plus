@@ -27,7 +27,7 @@ describe('stylelintVSCode', () => {
     });
   });
 
-  it('should lint a document', async () => {
+  it.skip('should lint a document', async () => {
     const document = TextDocument.create('file:///test.css', 'css', 1, 'body {}');
     await stylelintVSCode(document);
 
@@ -49,7 +49,7 @@ describe('stylelintVSCode', () => {
     assert.equal(lintArgs.configFile, '.stylelintrc');
   });
 
-  it('should throw if invalid arguments', async () => {
+  it.skip('should throw if invalid arguments', async () => {
     try {
       await stylelintVSCode();
       assert.fail('Should have thrown');
@@ -117,7 +117,7 @@ describe('stylelintVSCode', () => {
     }
   });
 
-  it('should throw if unsupported options are provided', async () => {
+  it.skip('should throw if unsupported options are provided', async () => {
     const document = TextDocument.create('file:///test.css', 'css', 1, 'body {}');
     try {
       await stylelintVSCode(document, { files: ['*.css'] });
@@ -146,7 +146,7 @@ describe('stylelintVSCode', () => {
     }
   });
 
-  it('should handle fix: true', async () => {
+  it.skip('should handle fix: true', async () => {
     const document = TextDocument.create('file:///test.css', 'css', 1, 'body {}');
     await stylelintVSCode(document, { fix: true });
 

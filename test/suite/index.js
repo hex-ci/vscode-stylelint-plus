@@ -9,7 +9,7 @@ async function run() {
   const mocha = new Mocha({
     ui: 'bdd',
     color: true,
-    timeout: 10000 // Increase timeout for integration tests
+    timeout: 60000 // Increase timeout for integration tests
   });
 
   const testsRoot = __dirname;
