@@ -1,4 +1,5 @@
 {
   "javascript.validate.syntaxValidation": false,
-  "stylelint.enable": true
+  "stylelint.enable": true,
+  "stylelint.useLocal": false
 }
