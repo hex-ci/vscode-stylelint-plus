@@ -124,6 +124,7 @@
     "build": "npm run clean && npm run compile",
     "prepackage": "npm run compile",
     "package": "vsce package",
+    "pretest": "npm run compile",
     "test": "node test/runTest.js",
     "linux:test": "xvfb-run -a npm test",
     "test:unit": "mocha test/unit/*.test.js",

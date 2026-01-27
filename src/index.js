@@ -2,8 +2,7 @@
 
 const path = require('path');
 const {
-  LanguageClient,
-  SettingMonitor
+  LanguageClient
 } = require('vscode-languageclient');
 const {
   workspace,
@@ -69,18 +68,36 @@ exports.activate = ({subscriptions}) => {
     diagnosticCollectionName: 'stylelint',
     synchronize: {
       configurationSection: 'stylelint',
-      fileEvents: workspace.createFileSystemWatcher('**/{.stylelintrc{,.js,.json,.yaml,.yml},stylelint.config.js,.stylelintignore}')
+      fileEvents: workspace.createFileSystemWatcher('**/{.stylelintrc{,.js,.json,.yaml,.yml},stylelint.config.js,stylelint.config.mjs,stylelint.config.ts,.stylelintignore}')
     }
   });
+
+  function startClient() {
+    if (client) {
+      client.start();
+    }
+  }
+
+  function stopClient() {
+    if (client) {
+      client.stop();
+    }
+  }
+
+  const config = workspace.getConfiguration('stylelint');
+
+  if (config.get('enable')) {
+    startClient();
+  }
 
   setStatusBar();
 
   client.onReady().then(() => {
-    client.onRequest('setStatusBarError', () => {
+    client.onNotification('setStatusBarError', () => {
       setStatusBar('error');
     });
 
-    client.onRequest('setStatusBarOk', () => {
+    client.onNotification('setStatusBarOk', () => {
       setStatusBar('ok');
     });
 
@@ -90,52 +107,66 @@ exports.activate = ({subscriptions}) => {
 
       setStatusBar('ok');
     });
+  });
 
-    subscriptions.push(
-      commands.registerCommand('stylelint.executeAutofix', async (uriArg, diagnosticArg) => {
-        let uri = uriArg;
-        let diagnostic = diagnosticArg;
+  subscriptions.push(
+    commands.registerCommand('stylelint.executeAutofix', async (uriArg, diagnosticArg) => {
+      if (!client) {
+        window.showInformationMessage('Stylelint is not running.');
+        return;
+      }
 
-        if (!uri) {
-          const activeEditor = window.activeTextEditor;
+      await client.onReady();
 
-          if (!activeEditor) {
-            window.showInformationMessage('Please open a file to use this command.');
+      let uri = uriArg;
+      let diagnostic = diagnosticArg;
 
-            return;
-          }
+      if (!uri) {
+        const activeEditor = window.activeTextEditor;
 
-          const document = activeEditor.document;
-          const supportedLanguages = [...new Set(documentSelector.map(s => s.language))];
-
-          if (!supportedLanguages.includes(document.languageId)) {
-            window.showInformationMessage(
-              `This command only works on support files. Current file type: ${document.languageId}`
-            );
-
-            return;
-          }
-
-          uri = document.uri.toString();
-
-          diagnostic = null;
-        }
-
-        if (!uri || typeof uri !== 'string' || uri.trim() === '') {
-          window.showErrorMessage('Failed to get document URI. Please try again.');
+        if (!activeEditor) {
+          window.showInformationMessage('Please open a file to use this command.');
 
           return;
         }
 
-        try {
-          await client.sendRequest('stylelint/executeAutofix', {uri, diagnostic});
-        }
-        catch (err) {
-          window.showErrorMessage(`Stylelint fix failed: ${err.message}`);
-        }
-      })
-    );
-  });
+        const document = activeEditor.document;
+        const supportedLanguages = [...new Set(documentSelector.map(s => s.language))];
 
-  subscriptions.push(new SettingMonitor(client, 'stylelint.enable').start());
+        if (!supportedLanguages.includes(document.languageId)) {
+          window.showInformationMessage(
+            `This command only works on support files. Current file type: ${document.languageId}`
+          );
+
+          return;
+        }
+
+        uri = document.uri.toString();
+
+        diagnostic = null;
+      }
+
+      if (!uri || typeof uri !== 'string' || uri.trim() === '') {
+        window.showErrorMessage('Failed to get document URI. Please try again.');
+
+        return;
+      }
+
+      try {
+        await client.sendRequest('stylelint/executeAutofix', {uri, diagnostic});
+      }
+      catch (err) {
+        window.showErrorMessage(`Stylelint fix failed: ${err.message}`);
+      }
+    })
+  );
+
+  subscriptions.push(
+    workspace.onDidChangeConfiguration(e => {
+      if (e.affectsConfiguration('stylelint.enable')) {
+        const enabled = workspace.getConfiguration('stylelint').get('enable');
+        enabled ? startClient() : stopClient();
+      }
+    })
+  );
 };

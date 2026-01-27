@@ -1,7 +1,16 @@
 'use strict';
 
 const { assert } = require('chai');
-const { extensions, workspace, window, commands, ConfigurationTarget, languages } = require('vscode');
+const {
+  extensions,
+  workspace,
+  window,
+  commands,
+  ConfigurationTarget,
+  languages,
+  WorkspaceEdit,
+  Position
+} = require('vscode');
 const pWaitFor = require('p-wait-for');
 const { join } = require('path');
 const fs = require('fs');
@@ -29,11 +38,17 @@ describe('Autofix Integration Tests', () => {
       }
     }, ConfigurationTarget.Global);
 
-    const randomId = Math.floor(Math.random() * 100000);
+    const testFileName = join(__dirname, `test-${Math.floor(Math.random() * 100000)}.css`);
 
-    fs.writeFileSync(join(__dirname, `test-${randomId}.css`), 'a {}');
+    fs.writeFileSync(testFileName, 'a {}');
 
-    const document = await workspace.openTextDocument(join(__dirname, `test-${randomId}.css`));
+    afterEach(function () {
+      if (fs.existsSync(testFileName)) {
+        fs.unlinkSync(testFileName);
+      }
+    });
+
+    const document = await workspace.openTextDocument(testFileName);
 
     await window.showTextDocument(document);
 
@@ -48,17 +63,9 @@ describe('Autofix Integration Tests', () => {
     const stylelintDiagnostics = diagnostics.filter(d => d.source === 'stylelint');
     assert.isNotEmpty(stylelintDiagnostics);
     assert.include(stylelintDiagnostics[0].message, 'block-no-empty');
-
-    fs.unlinkSync(join(__dirname, `test-${randomId}.css`));
   });
 
-  // Skipping autofix tests because they fail in the test environment (timeout),
-  // even though they work in a standalone script (debug-autofix.js) and in production.
-  // Investigation showed that stylelint v15 supports the rules, but for some reason
-  // the fix is not applied or not reflected in the document buffer within the test timeout.
-  // This might be due to race conditions in the test extension host or IPC issues.
-  // Since we verified config passing above, we skip these to avoid blocking CI.
-  it.skip('should autofix css', async () => {
+  it('should autofix css', async () => {
     // Configure stylelint to enforce length-zero-no-unit
     await workspace.getConfiguration('stylelint').update('config', {
       rules: {
@@ -66,11 +73,17 @@ describe('Autofix Integration Tests', () => {
       }
     }, ConfigurationTarget.Global);
 
-    const randomId = Math.floor(Math.random() * 100000);
+    const testFileName = join(__dirname, `test-${Math.floor(Math.random() * 100000)}.css`);
 
-    fs.writeFileSync(join(__dirname, `test-${randomId}.css`), 'a { top: 0px; }');
+    fs.writeFileSync(testFileName, 'a { top: 0px; }');
 
-    const document = await workspace.openTextDocument(join(__dirname, `test-${randomId}.css`));
+    afterEach(function () {
+      if (fs.existsSync(testFileName)) {
+        fs.unlinkSync(testFileName);
+      }
+    });
+
+    const document = await workspace.openTextDocument(testFileName);
 
     await window.showTextDocument(document);
 
@@ -91,11 +104,9 @@ describe('Autofix Integration Tests', () => {
 
     assert.include(document.getText(), 'top: 0;');
     assert.notInclude(document.getText(), 'top: 0px;');
-
-    fs.unlinkSync(join(__dirname, `test-${randomId}.css`));
   });
 
-  it.skip('should autofix on save', async () => {
+  it('should autofix on save', async () => {
     // Enable autoFixOnSave and configure rule
     await workspace.getConfiguration('stylelint').update('autoFixOnSave', true, ConfigurationTarget.Global);
     await workspace.getConfiguration('stylelint').update('config', {
@@ -104,10 +115,17 @@ describe('Autofix Integration Tests', () => {
       }
     }, ConfigurationTarget.Global);
 
-    const document = await workspace.openTextDocument({
-      content: 'a { top: 0px; }',
-      language: 'css'
+    const testFileName = join(__dirname, `test-${Math.floor(Math.random() * 100000)}.css`);
+
+    fs.writeFileSync(testFileName, 'a { top: 0px; }');
+
+    afterEach(function () {
+      if (fs.existsSync(testFileName)) {
+        fs.unlinkSync(testFileName);
+      }
     });
+
+    const document = await workspace.openTextDocument(testFileName);
 
     await window.showTextDocument(document);
 
@@ -116,15 +134,27 @@ describe('Autofix Integration Tests', () => {
       const diagnostics = languages.getDiagnostics(document.uri);
       const stylelintDiagnostics = diagnostics.filter(d => d.source === 'stylelint');
       return stylelintDiagnostics.length > 0;
-    }, { timeout: 30000 });
+    }, { timeout: 3000 });
+
+    await new Promise(resolve => setTimeout(resolve, 1000));
+
+    const edit = new WorkspaceEdit();
+    edit.insert(document.uri, new Position(0, 0), '\n');
+    await workspace.applyEdit(edit);
 
     // Save document to trigger autofix
     await document.save();
 
+    await new Promise(resolve => setTimeout(resolve, 1000));
+
+    await commands.executeCommand('workbench.action.files.revert');
+
+    await new Promise(resolve => setTimeout(resolve, 1000));
+
     // Wait for the change to happen
     await pWaitFor(() => {
       return document.getText().includes('top: 0;');
-    }, { timeout: 30000 });
+    }, { timeout: 3000 });
 
     assert.include(document.getText(), 'top: 0;');
     assert.notInclude(document.getText(), 'top: 0px;');

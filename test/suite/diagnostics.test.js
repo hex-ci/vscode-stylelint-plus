@@ -8,13 +8,19 @@ const fs = require('fs');
 
 describe('Diagnostics Integration Tests', () => {
   it('should report syntax errors', async () => {
-    const randomId = Math.floor(Math.random() * 100000);
+    const testFileName = join(__dirname, `test-${Math.floor(Math.random() * 100000)}.css`);
 
-    fs.writeFileSync(join(__dirname, `test-${randomId}.css`), 'body {');
+    fs.writeFileSync(testFileName, 'body {');
+
+    afterEach(function () {
+      if (fs.existsSync(testFileName)) {
+        fs.unlinkSync(testFileName);
+      }
+    });
 
     const vscodeStylelint = extensions.getExtension('hex-ci.stylelint-plus');
 
-    const cssDocument = await workspace.openTextDocument(join(__dirname, `test-${randomId}.css`));
+    const cssDocument = await workspace.openTextDocument(testFileName);
 
     await window.showTextDocument(cssDocument);
 
@@ -32,7 +38,5 @@ describe('Diagnostics Integration Tests', () => {
     const stylelintDiagnostics = diagnostics.filter(d => d.source === 'stylelint');
     assert.isNotEmpty(stylelintDiagnostics);
     assert.equal(stylelintDiagnostics[0].source, 'stylelint');
-
-    fs.unlinkSync(join(__dirname, `test-${randomId}.css`));
   });
 });

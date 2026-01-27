@@ -21,12 +21,18 @@ describe('Configuration Integration Tests', () => {
   });
 
   it('should clear diagnostics when disabled', async () => {
-    const randomId = Math.floor(Math.random() * 100000);
+    const testFileName = join(__dirname, `test-${Math.floor(Math.random() * 100000)}.css`);
 
-    fs.writeFileSync(join(__dirname, `test-${randomId}.css`), 'body {');
+    fs.writeFileSync(testFileName, 'body {');
+
+    afterEach(function () {
+      if (fs.existsSync(testFileName)) {
+        fs.unlinkSync(testFileName);
+      }
+    });
 
     // 1. Open a file with errors
-    const document = await workspace.openTextDocument(join(__dirname, `test-${randomId}.css`));
+    const document = await workspace.openTextDocument(testFileName);
 
     await window.showTextDocument(document);
 
@@ -52,7 +58,5 @@ describe('Configuration Integration Tests', () => {
 
     const diagnosticsAfter = languages.getDiagnostics(document.uri).filter(d => d.source === 'stylelint');
     assert.isEmpty(diagnosticsAfter, 'Diagnostics should be cleared when extension is disabled');
-
-    fs.unlinkSync(join(__dirname, `test-${randomId}.css`));
   });
 });

@@ -10,6 +10,12 @@ describe('SCSS Integration Tests', () => {
   it('should report errors in SCSS files', async () => {
     fs.writeFileSync(join(__dirname, 'test.scss'), '$color: #ffffff;\na { color: $color; ');
 
+    afterEach(function () {
+      if (fs.existsSync(join(__dirname, 'test.scss'))) {
+        fs.unlinkSync(join(__dirname, 'test.scss'));
+      }
+    });
+
     const vscodeStylelint = extensions.getExtension('hex-ci.stylelint-plus');
 
     const scssDocument = await workspace.openTextDocument(join(__dirname, 'test.scss'));
@@ -30,7 +36,5 @@ describe('SCSS Integration Tests', () => {
     const stylelintDiagnostics = diagnostics.filter(d => d.source === 'stylelint');
     assert.isNotEmpty(stylelintDiagnostics, 'Should have stylelint diagnostics for SCSS file');
     assert.equal(stylelintDiagnostics[0].source, 'stylelint');
-
-    fs.unlinkSync(join(__dirname, 'test.scss'));
   });
 });

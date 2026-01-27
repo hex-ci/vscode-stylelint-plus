@@ -11,6 +11,16 @@ describe('Ignore Integration Tests', () => {
     fs.writeFileSync(join(__dirname, '.stylelintignore'), 'ignore.css\n');
     fs.writeFileSync(join(__dirname, 'ignore.css'), '.test1 { color: #fff; }\n.test2 { color: #000; }\n');
 
+    afterEach(function () {
+      if (fs.existsSync(join(__dirname, '.stylelintignore'))) {
+        fs.unlinkSync(join(__dirname, '.stylelintignore'));
+      }
+
+      if (fs.existsSync(join(__dirname, 'ignore.css'))) {
+        fs.unlinkSync(join(__dirname, 'ignore.css'));
+      }
+    });
+
     const vscodeStylelint = extensions.getExtension('hex-ci.stylelint-plus');
 
     const jsDocument = await workspace.openTextDocument(join(__dirname, 'ignore.css'));
@@ -19,14 +29,11 @@ describe('Ignore Integration Tests', () => {
 
     await pWaitFor(() => vscodeStylelint.isActive, { timeout: 5000 });
 
-    await new Promise(resolve => setTimeout(resolve, 3000));
+    await new Promise(resolve => setTimeout(resolve, 1000));
 
     const diagnostics = languages.getDiagnostics(jsDocument.uri);
     const stylelintDiagnostics = diagnostics.filter(d => d.source === 'stylelint');
 
     assert.isEmpty(stylelintDiagnostics, 'Should ignore JS files as per .stylelintignore');
-
-    fs.unlinkSync(join(__dirname, '.stylelintignore'));
-    fs.unlinkSync(join(__dirname, 'ignore.css'));
   });
 });

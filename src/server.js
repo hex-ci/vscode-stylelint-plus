@@ -27,10 +27,19 @@ let useLocal;
 let disableErrorMessage;
 let detectedStylelintVersion = null;
 let isUsingLocal = false;
+let isShuttingDown = false;
 
 const connection = createConnection(ProposedFeatures.all);
 const documents = new TextDocuments();
 const documentDiagnostics = new Map();
+
+function safeNotification(method) {
+  if (isShuttingDown) {
+    return;
+  }
+
+  connection.sendNotification(method);
+}
 
 function getWorkspaceForDocument(documentUri, folders) {
   if (!folders) {
@@ -134,7 +143,7 @@ async function validate(document, isAutoFixOnSave = false) {
 
     if (useLocal) {
       if (!stylelintPath) {
-        connection.sendRequest('setStatusBarError');
+        safeNotification('setStatusBarError');
         return;
       }
 
@@ -154,7 +163,7 @@ async function validate(document, isAutoFixOnSave = false) {
       }
     }
     else {
-      connection.sendRequest('setStatusBarOk');
+      safeNotification('setStatusBarOk');
 
       try {
         const bundledPkg = require('../package.json');
@@ -183,11 +192,12 @@ async function validate(document, isAutoFixOnSave = false) {
 
     documentDiagnostics.set(document.uri, diagnostics);
 
-    connection.sendRequest('setStatusBarOk');
+    safeNotification('setStatusBarOk');
   }
   catch (err) {
-    connection.console.error(err);
-    connection.sendRequest('setStatusBarError');
+    connection.console.error(`stylelint error: ${err}`);
+
+    safeNotification('setStatusBarError');
 
     if (disableErrorMessage) {
       return;
@@ -247,7 +257,7 @@ async function executeAutofix(uri, diagnostic = null) {
 
       if (useLocal) {
         if (!stylelintPath) {
-          connection.sendRequest('setStatusBarError');
+          safeNotification('setStatusBarError');
           connection.window.showErrorMessage('Local stylelint not found');
           return;
         }
@@ -423,6 +433,10 @@ connection.onDidChangeConfiguration(({settings}) => {
 });
 
 connection.onDidChangeWatchedFiles(validateAll);
+
+connection.onShutdown(() => {
+  isShuttingDown = true;
+});
 
 documents.onDidChangeContent(({document}) => validate(document));
 
