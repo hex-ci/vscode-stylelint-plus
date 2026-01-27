@@ -53,7 +53,6 @@ describe('Server Error Handling', () => {
       './stylelint-vscode': sinon.stub().resolves([]),
       './load-stylelint': sinon.stub(),
       'find-pkg-dir': sinon.stub(),
-      'path-is-inside': sinon.stub(),
       'fs': { existsSync: sinon.stub().returns(false) },
       './utils': { isRangeOverlap: sinon.stub(), generateTextEdits: sinon.stub() },
       'vscode-uri': { URI: { parse: (uri) => ({ fsPath: uri.replace('file://', '') }) } },

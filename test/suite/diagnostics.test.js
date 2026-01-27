@@ -3,15 +3,19 @@
 const { assert } = require('chai');
 const { extensions, workspace, window, languages } = require('vscode');
 const pWaitFor = require('p-wait-for');
+const { join } = require('path');
+const fs = require('fs');
 
 describe('Diagnostics Integration Tests', () => {
   it('should report syntax errors', async () => {
+    const randomId = Math.floor(Math.random() * 100000);
+
+    fs.writeFileSync(join(__dirname, `test-${randomId}.css`), 'body {');
+
     const vscodeStylelint = extensions.getExtension('hex-ci.stylelint-plus');
 
-    const cssDocument = await workspace.openTextDocument({
-      content: 'body {', // Syntax error
-      language: 'css'
-    });
+    const cssDocument = await workspace.openTextDocument(join(__dirname, `test-${randomId}.css`));
+
     await window.showTextDocument(cssDocument);
 
     // Wait for activation
@@ -28,5 +32,7 @@ describe('Diagnostics Integration Tests', () => {
     const stylelintDiagnostics = diagnostics.filter(d => d.source === 'stylelint');
     assert.isNotEmpty(stylelintDiagnostics);
     assert.equal(stylelintDiagnostics[0].source, 'stylelint');
+
+    fs.unlinkSync(join(__dirname, `test-${randomId}.css`));
   });
 });

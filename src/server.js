@@ -5,7 +5,8 @@ const {
   join,
   parse,
   resolve,
-  extname
+  extname,
+  dirname
 } = require('path');
 const {
   createConnection,
@@ -15,7 +16,6 @@ const {
 } = require('vscode-languageserver');
 const findPkgDir = require('find-pkg-dir');
 const parseUri = require('vscode-uri').URI.parse;
-const pathIsInside = require('path-is-inside');
 const stylelintVSCode = require('./stylelint-vscode');
 const loadStylelint = require('./load-stylelint');
 const { isRangeOverlap, generateTextEdits } = require('./utils');
@@ -32,19 +32,30 @@ const connection = createConnection(ProposedFeatures.all);
 const documents = new TextDocuments();
 const documentDiagnostics = new Map();
 
-async function resolveStylelintOptions(documentPath) {
+function getWorkspaceForDocument(documentUri, folders) {
+  if (!folders) {
+    return undefined;
+  }
+
+  const docUri = parseUri(documentUri);
+
+  return folders
+    .filter(folder =>
+      docUri.toString().startsWith(parseUri(folder.uri).toString())
+    )
+    .sort((a, b) => b.uri.length - a.uri.length)[0];
+}
+
+async function resolveStylelintOptions(documentUri) {
   let stopPath = null;
-  const workspaceFolders = await connection.workspace.getWorkspaceFolders();
+  const documentPath = parseUri(documentUri).fsPath;
 
-  if (workspaceFolders) {
-    for (const {uri} of workspaceFolders) {
-      const workspacePath = parseUri(uri).fsPath;
+  const folders = await connection.workspace.getWorkspaceFolders();
 
-      if (pathIsInside(documentPath, workspacePath)) {
-        stopPath = workspacePath;
-        break;
-      }
-    }
+  const workspace = getWorkspaceForDocument(documentPath, folders);
+
+  if (workspace) {
+    stopPath = parseUri(workspace.uri).fsPath;
   }
 
   if (!stopPath) {
@@ -106,7 +117,18 @@ async function validate(document, isAutoFixOnSave = false) {
   const documentPath = parseUri(document.uri).fsPath;
 
   if (documentPath) {
-    const {ignorePath, path: stylelintPath} = await resolveStylelintOptions(documentPath);
+    const folders = await connection.workspace.getWorkspaceFolders();
+
+    const workspace = getWorkspaceForDocument(document.uri, folders);
+
+    if (workspace) {
+      options.cwd = parseUri(workspace.uri).fsPath;
+    }
+    else {
+      options.cwd = dirname(documentPath);
+    }
+
+    const {ignorePath, path: stylelintPath} = await resolveStylelintOptions(document.uri);
 
     options.ignorePath = ignorePath;
 

@@ -3,6 +3,8 @@
 const { assert } = require('chai');
 const { extensions, workspace, window, languages, ConfigurationTarget } = require('vscode');
 const pWaitFor = require('p-wait-for');
+const { join } = require('path');
+const fs = require('fs');
 
 describe('Configuration Integration Tests', () => {
   let vscodeStylelint;
@@ -19,11 +21,12 @@ describe('Configuration Integration Tests', () => {
   });
 
   it('should clear diagnostics when disabled', async () => {
+    const randomId = Math.floor(Math.random() * 100000);
+
+    fs.writeFileSync(join(__dirname, `test-${randomId}.css`), 'body {');
+
     // 1. Open a file with errors
-    const document = await workspace.openTextDocument({
-      content: 'body {', // Syntax error
-      language: 'css'
-    });
+    const document = await workspace.openTextDocument(join(__dirname, `test-${randomId}.css`));
 
     await window.showTextDocument(document);
 
@@ -49,5 +52,7 @@ describe('Configuration Integration Tests', () => {
 
     const diagnosticsAfter = languages.getDiagnostics(document.uri).filter(d => d.source === 'stylelint');
     assert.isEmpty(diagnosticsAfter, 'Diagnostics should be cleared when extension is disabled');
+
+    fs.unlinkSync(join(__dirname, `test-${randomId}.css`));
   });
 });

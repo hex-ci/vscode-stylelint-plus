@@ -1,8 +1,7 @@
 'use strict';
 
 const arrayToError = require('array-to-error');
-const arrayToSentence = require('array-to-sentence');
-const {at, has, intersection, isPlainObject, map, stubString} = require('lodash');
+const {at, has, isPlainObject, map, stubString} = require('lodash');
 const {TextDocument} = require('vscode-languageserver');
 const inspectWithKind = require('inspect-with-kind');
 const parseUri = require('vscode-uri').URI.parse;
@@ -34,17 +33,6 @@ const LANGUAGE_EXTENSION_EXCEPTION_PAIRS = new Map([
   ['xsl', 'html']
 ]);
 
-const UNSUPPORTED_OPTIONS = [
-  'code',
-  'codeFilename',
-  'files',
-  'formatter'
-];
-
-function quote(str) {
-  return `\`${str}\``;
-}
-
 function processResults({results}) {
   // https://github.com/stylelint/stylelint/blob/10.0.1/lib/standalone.js#L114-L122
   if (results.length === 0) {
@@ -60,39 +48,17 @@ function processResults({results}) {
   return warnings.map(stylelintWarningToVscodeDiagnostic);
 }
 
-module.exports = async function stylelintVSCode(...args) {
-  const argLen = args.length;
-
-  if (argLen !== 1 && argLen !== 2) {
-    throw new RangeError(`Expected 1 or 2 arguments (<TextDocument>[, <Object>]), but got ${
-      argLen === 0 ? 'no' : argLen
-    } arguments.`);
-  }
-
-  const [textDocument, options = {}] = args;
-
+module.exports = async function stylelintVSCode(textDocument, options = {}) {
   if (!TextDocument.is(textDocument)) {
     throw new TypeError(`Expected a TextDocument https://code.visualstudio.com/docs/extensionAPI/vscode-api#TextDocument, but got ${
       inspectWithKind(textDocument)
     }.`);
   }
 
-  if (argLen === 2) {
-    if (!isPlainObject(options)) {
-      throw new TypeError(`Expected an object containing stylelint API options, but got ${
-        inspectWithKind(options)
-      }.`);
-    }
-
-    const providedUnsupportedOptions = intersection(Object.keys(options), UNSUPPORTED_OPTIONS);
-
-    if (providedUnsupportedOptions.length !== 0) {
-      throw new TypeError(`${
-        arrayToSentence(map(UNSUPPORTED_OPTIONS, quote))
-      } options are not supported because they will be derived from a document and there is no need to set them manually, but ${
-        arrayToSentence(map(providedUnsupportedOptions, quote))
-      } was provided.`);
-    }
+  if (!isPlainObject(options)) {
+    throw new TypeError(`Expected an object containing stylelint API options, but got ${
+      inspectWithKind(options)
+    }.`);
   }
 
   const priorOptions = {

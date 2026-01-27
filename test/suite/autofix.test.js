@@ -3,6 +3,8 @@
 const { assert } = require('chai');
 const { extensions, workspace, window, commands, ConfigurationTarget, languages } = require('vscode');
 const pWaitFor = require('p-wait-for');
+const { join } = require('path');
+const fs = require('fs');
 
 describe('Autofix Integration Tests', () => {
   let vscodeStylelint;
@@ -21,17 +23,17 @@ describe('Autofix Integration Tests', () => {
   // Verify that configuration passing works.
   // This test passes, confirming that stylelint is loaded, running, and receiving config.
   it('should report block-no-empty (config validation)', async () => {
-    // Configure stylelint to enforce block-no-empty
     await workspace.getConfiguration('stylelint').update('config', {
       rules: {
         'block-no-empty': true
       }
     }, ConfigurationTarget.Global);
 
-    const document = await workspace.openTextDocument({
-      content: 'a {}',
-      language: 'css'
-    });
+    const randomId = Math.floor(Math.random() * 100000);
+
+    fs.writeFileSync(join(__dirname, `test-${randomId}.css`), 'a {}');
+
+    const document = await workspace.openTextDocument(join(__dirname, `test-${randomId}.css`));
 
     await window.showTextDocument(document);
 
@@ -46,6 +48,8 @@ describe('Autofix Integration Tests', () => {
     const stylelintDiagnostics = diagnostics.filter(d => d.source === 'stylelint');
     assert.isNotEmpty(stylelintDiagnostics);
     assert.include(stylelintDiagnostics[0].message, 'block-no-empty');
+
+    fs.unlinkSync(join(__dirname, `test-${randomId}.css`));
   });
 
   // Skipping autofix tests because they fail in the test environment (timeout),
@@ -62,10 +66,11 @@ describe('Autofix Integration Tests', () => {
       }
     }, ConfigurationTarget.Global);
 
-    const document = await workspace.openTextDocument({
-      content: 'a { top: 0px; }',
-      language: 'css'
-    });
+    const randomId = Math.floor(Math.random() * 100000);
+
+    fs.writeFileSync(join(__dirname, `test-${randomId}.css`), 'a { top: 0px; }');
+
+    const document = await workspace.openTextDocument(join(__dirname, `test-${randomId}.css`));
 
     await window.showTextDocument(document);
 
@@ -86,6 +91,8 @@ describe('Autofix Integration Tests', () => {
 
     assert.include(document.getText(), 'top: 0;');
     assert.notInclude(document.getText(), 'top: 0px;');
+
+    fs.unlinkSync(join(__dirname, `test-${randomId}.css`));
   });
 
   it.skip('should autofix on save', async () => {
