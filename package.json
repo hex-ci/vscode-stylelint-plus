@@ -117,6 +117,7 @@
     ]
   },
   "scripts": {
+    "vscode:prepublish": "npm run compile",
     "lint": "eslint .",
     "clean": "rimraf dist",
     "compile": "node scripts/esbuild.js",
