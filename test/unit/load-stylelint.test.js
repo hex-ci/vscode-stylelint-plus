@@ -52,11 +52,11 @@ describe('loadStylelint', () => {
     const pkgJsonPath = path.join(modulePath, 'package.json');
 
     fsStub.existsSync.withArgs(pkgJsonPath).returns(true);
-    fsStub.readFileSync.withArgs(pkgJsonPath, 'utf8').returns(JSON.stringify({ version: '16.0.0', main: 'index.js' }));
+    fsStub.readFileSync.withArgs(pkgJsonPath, 'utf8').returns(JSON.stringify({ version: '15.0.0', main: 'index.js' }));
 
     const result = await loadStylelint(modulePath);
 
-    assert.equal(result.version, '16.0.0');
+    assert.equal(result.version, '15.0.0');
     assert.equal(result.lint(), 'mock-lint-result');
   });
 
@@ -71,9 +71,9 @@ describe('loadStylelint', () => {
     const result = await loadStylelint(modulePath);
 
     // Verify that a CJS module mock is correctly loaded even when mocked as v17
-    // The fixture exports { version: '16.0.0', lint: ... }
+    // The fixture exports { version: '15.0.0', lint: ... }
 
-    assert.equal(result.version, '16.0.0');
+    assert.equal(result.version, '15.0.0');
     assert.equal(result.lint(), 'mock-lint-result');
   });
 
@@ -88,7 +88,7 @@ describe('loadStylelint', () => {
     }));
 
     const result = await loadStylelint(modulePath);
-    assert.equal(result.version, '16.0.0');
+    assert.equal(result.version, '15.0.0');
   });
 
   it('should support exports as object with dot and string', async () => {
@@ -104,7 +104,7 @@ describe('loadStylelint', () => {
     }));
 
     const result = await loadStylelint(modulePath);
-    assert.equal(result.version, '16.0.0');
+    assert.equal(result.version, '15.0.0');
   });
 
   it('should support exports as object with dot and import', async () => {
@@ -122,7 +122,7 @@ describe('loadStylelint', () => {
     }));
 
     const result = await loadStylelint(modulePath);
-    assert.equal(result.version, '16.0.0');
+    assert.equal(result.version, '15.0.0');
   });
 
   it('should support exports as object with dot and default', async () => {
@@ -140,7 +140,7 @@ describe('loadStylelint', () => {
     }));
 
     const result = await loadStylelint(modulePath);
-    assert.equal(result.version, '16.0.0');
+    assert.equal(result.version, '15.0.0');
   });
 
   it('should fall back to main if exports does not have dot export', async () => {
@@ -157,7 +157,7 @@ describe('loadStylelint', () => {
     }));
 
     const result = await loadStylelint(modulePath);
-    assert.equal(result.version, '16.0.0');
+    assert.equal(result.version, '15.0.0');
   });
 
   it('should fall back to main if exports dot export has no import or default', async () => {
@@ -176,7 +176,7 @@ describe('loadStylelint', () => {
     }));
 
     const result = await loadStylelint(modulePath);
-    assert.equal(result.version, '16.0.0');
+    assert.equal(result.version, '15.0.0');
   });
 
   it('should fall back to module field if no exports and no main', async () => {
@@ -190,7 +190,7 @@ describe('loadStylelint', () => {
     }));
 
     const result = await loadStylelint(modulePath);
-    assert.equal(result.version, '16.0.0');
+    assert.equal(result.version, '15.0.0');
   });
 
   it('should fall back to index.js if no exports, main, or module', async () => {
@@ -203,7 +203,7 @@ describe('loadStylelint', () => {
     }));
 
     const result = await loadStylelint(modulePath);
-    assert.equal(result.version, '16.0.0');
+    assert.equal(result.version, '15.0.0');
   });
 
   it('should handle ESM module with no default export', async () => {

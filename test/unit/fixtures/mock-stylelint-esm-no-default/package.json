@@ -1,1 +1,6 @@
-{"version": "17.0.0", "type": "module", "main": "index.mjs"}
+{
+  "name": "mock-stylelint-esm-no-default",
+  "version": "17.0.0",
+  "type": "module",
+  "main": "index.mjs"
+}
