@@ -129,7 +129,7 @@
     "test": "node test/runTest.js",
     "linux:test": "xvfb-run -a npm test",
     "test:unit": "mocha test/unit/*.test.js",
-    "coverage": "nyc --reporter=lcov --reporter=text npm run test:unit"
+    "coverage": "nyc --reporter=text --reporter=lcov --reporter=cobertura --reporter=clover --reporter=json npm run test:unit"
   },
   "dependencies": {
     "stylelint": "^15.11.0"

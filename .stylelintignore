@@ -4,3 +4,4 @@
 **/*.ts
 LICENSE
 node_modules/
+coverage/
