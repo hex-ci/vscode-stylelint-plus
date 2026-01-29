@@ -20,7 +20,10 @@ jobs:
         run: npm install
 
       - name: Run tests
-        run: npx nyc --reporter=lcov npm run test:unit
+        run: npm run test:unit
+
+      - name: Report coverage
+        run: npm run report-coverage
 
       - name: Upload results to Codecov
         uses: codecov/codecov-action@v5
