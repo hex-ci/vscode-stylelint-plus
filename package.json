@@ -129,8 +129,7 @@
     "test": "node test/runTest.js",
     "linux:test": "xvfb-run -a npm test",
     "test:unit": "mocha test/unit/*.test.js",
-    "coverage": "nyc npm run test:unit",
-    "report-coverage": "nyc --reporter=lcov npm run test:unit"
+    "coverage": "nyc --reporter=lcov --reporter=text npm run test:unit"
   },
   "dependencies": {
     "stylelint": "^15.11.0"
@@ -146,7 +145,6 @@
     "@vscode/test-electron": "^2.5.2",
     "array-to-error": "^1.1.1",
     "chai": "^4.5.0",
-    "codecov": "^3.8.2",
     "diff": "^8.0.3",
     "esbuild": "^0.27.2",
     "eslint": "^9.39.2",
