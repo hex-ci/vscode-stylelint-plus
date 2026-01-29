@@ -16,6 +16,8 @@ tsconfig.json
 screenshot.png
 .nyc_output/
 .github/
+fixture.css
+stylelint.config.js
 
 # Keep dist and package info
 !dist/**/*.js
