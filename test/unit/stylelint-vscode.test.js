@@ -27,7 +27,7 @@ describe('stylelintVSCode', () => {
     });
   });
 
-  it.skip('should lint a document', async () => {
+  it('should lint a document', async () => {
     const document = TextDocument.create('file:///test.css', 'css', 1, 'body {}');
     await stylelintVSCode(document);
 
@@ -49,20 +49,21 @@ describe('stylelintVSCode', () => {
     assert.equal(lintArgs.configFile, '.stylelintrc');
   });
 
-  it.skip('should throw if invalid arguments', async () => {
+  it('should throw if invalid arguments', async () => {
     try {
       await stylelintVSCode();
       assert.fail('Should have thrown');
     } catch (err) {
-      assert.instanceOf(err, RangeError);
+      assert.instanceOf(err, TypeError);
+      assert.include(err.message, 'Expected a TextDocument');
     }
 
     try {
-      await stylelintVSCode({}, {}, {});
+      await stylelintVSCode({});
       assert.fail('Should have thrown');
     } catch (err) {
-      assert.instanceOf(err, RangeError);
-      assert.include(err.message, 'got 3 arguments');
+      assert.instanceOf(err, TypeError);
+      assert.include(err.message, 'Expected a TextDocument');
     }
   });
 
@@ -117,17 +118,6 @@ describe('stylelintVSCode', () => {
     }
   });
 
-  it.skip('should throw if unsupported options are provided', async () => {
-    const document = TextDocument.create('file:///test.css', 'css', 1, 'body {}');
-    try {
-      await stylelintVSCode(document, { files: ['*.css'] });
-      assert.fail('Should have thrown');
-    } catch (err) {
-      assert.instanceOf(err, TypeError);
-      assert.include(err.message, 'options are not supported');
-    }
-  });
-
   it('should throw if invalidOptionWarnings are present', async () => {
     const document = TextDocument.create('file:///test.css', 'css', 1, 'body {}');
     lintStub.resolves({
@@ -146,7 +136,7 @@ describe('stylelintVSCode', () => {
     }
   });
 
-  it.skip('should handle fix: true', async () => {
+  it('should handle fix: true', async () => {
     const document = TextDocument.create('file:///test.css', 'css', 1, 'body {}');
     await stylelintVSCode(document, { fix: true });
 

@@ -46,6 +46,7 @@ describe('Server Ignore Handling', () => {
       onRequest: sinon.stub(),
       onDidChangeConfiguration: sinon.stub().callsFake(fn => onDidChangeConfigurationHandler = fn),
       onDidChangeWatchedFiles: sinon.stub(),
+      onShutdown: sinon.stub(),
       listen: sinon.stub()
     };
 

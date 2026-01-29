@@ -21,6 +21,7 @@ describe('Server Error Handling', () => {
       onRequest: sinon.stub(),
       onDidChangeConfiguration: sinon.stub(),
       onDidChangeWatchedFiles: sinon.stub(),
+      onShutdown: sinon.stub(),
       listen: sinon.stub()
     };
 

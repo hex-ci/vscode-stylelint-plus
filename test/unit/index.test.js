@@ -34,7 +34,9 @@ describe('Extension Activation', () => {
 
     vscodeMock = {
       workspace: {
-        createFileSystemWatcher: sinon.stub()
+        createFileSystemWatcher: sinon.stub(),
+        getConfiguration: sinon.stub().returns({ get: sinon.stub().returns(true) }),
+        onDidChangeConfiguration: sinon.stub().returns({ dispose: sinon.stub() })
       },
       commands: {
         registerCommand: sinon.spy((cmd) => { console.log('Registering command:', cmd); return { dispose: sinon.stub() }; })
@@ -68,8 +70,6 @@ describe('Extension Activation', () => {
 
     // Verify client creation
     assert.isTrue(languageClientCalled, 'LanguageClient constructor should be called');
-    assert.isTrue(languageClientMock.SettingMonitor.called);
-    assert.isTrue(languageClientMock.SettingMonitor.firstCall.returnValue.start.called);
 
     // Wait for onReady callback
     await new Promise(resolve => setTimeout(resolve, 0));
@@ -219,8 +219,8 @@ describe('Extension Activation', () => {
     await clientInstanceMock.onReady.firstCall.returnValue;
 
     // Get handlers registered on client
-    const setStatusBarError = clientInstanceMock.onRequest.args.find(args => args[0] === 'setStatusBarError')[1];
-    const setStatusBarOk = clientInstanceMock.onRequest.args.find(args => args[0] === 'setStatusBarOk')[1];
+    const setStatusBarError = clientInstanceMock.onNotification.args.find(args => args[0] === 'setStatusBarError')[1];
+    const setStatusBarOk = clientInstanceMock.onNotification.args.find(args => args[0] === 'setStatusBarOk')[1];
     const versionDetected = clientInstanceMock.onNotification.args.find(args => args[0] === 'stylelint/versionDetected')[1];
 
     // Trigger handlers
@@ -267,5 +267,46 @@ describe('Extension Activation', () => {
     assert.equal(selector.length, 2);
     assert.deepEqual(selector[0], { language: 'css', scheme: 'file' });
     assert.deepEqual(selector[1], { language: 'css', scheme: 'untitled' });
+  });
+
+  // Note: Testing client === null is not feasible in the current architecture
+  // because client is created as a const in activate() and cannot become null later.
+  // The null check at index.js:115-116 is defensive programming for future lifecycle changes.
+  // It cannot be covered by unit tests without modifying the source code structure.
+
+  it('should stop client when configuration changes to disabled', async () => {
+    // Mock getConfiguration to return false for 'enable'
+    const getConfigStub = sinon.stub();
+    getConfigStub.withArgs('enable').returns(false);
+
+    const vscodeMockWithDisabled = {
+      ...vscodeMock,
+      workspace: {
+        ...vscodeMock.workspace,
+        getConfiguration: sinon.stub().returns({ get: getConfigStub })
+      }
+    };
+
+    const { activate } = proxyquire('../../src/index', {
+      'vscode': vscodeMockWithDisabled,
+      'vscode-languageclient': languageClientMock,
+      'path': { join: (...args) => args.join('/') }
+    });
+
+    const context = { subscriptions: [], asAbsolutePath: (p) => `/abs/${p}` };
+    activate(context);
+
+    // Get the configuration change handler
+    const configChangeHandler = vscodeMockWithDisabled.workspace.onDidChangeConfiguration.firstCall.args[0];
+
+    clientInstanceMock.stop = sinon.stub();
+
+    // Simulate configuration change to disable
+    configChangeHandler({
+      affectsConfiguration: (key) => key === 'stylelint.enable'
+    });
+
+    // Should have called stop
+    assert.isTrue(clientInstanceMock.stop.called);
   });
 });

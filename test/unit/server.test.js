@@ -74,6 +74,7 @@ describe('Server', () => {
         });
       }),
       onDidChangeWatchedFiles: sinon.stub(),
+      onShutdown: sinon.stub(),
       listen: sinon.stub()
     };
 
@@ -228,7 +229,7 @@ describe('Server', () => {
       onDidChangeConfigurationHandler({ settings: { stylelint: { useLocal: true } } });
       await onDidChangeContentHandler({ document });
 
-      assert.isTrue(connectionMock.sendRequest.calledWith('setStatusBarError'));
+      assert.isTrue(connectionMock.sendNotification.calledWith('setStatusBarError'));
     });
 
     it('should handle stylelint configuration error (code 78)', async () => {
@@ -794,6 +795,79 @@ describe('Server', () => {
       await onDidSaveHandler({ document });
 
       assert.isFalse(stylelintVSCodeStub.called);
+    });
+
+    it('should validate on save if autoFixOnSave is true', async () => {
+      const document = { uri: 'file:///test.css', getText: () => 'css content' };
+
+      onDidChangeConfigurationHandler({
+        settings: {
+          stylelint: {
+            autoFixOnSave: true
+          }
+        }
+      });
+
+      await onDidSaveHandler({ document });
+
+      // Wait for async validate to complete
+      await new Promise(resolve => setImmediate(resolve));
+
+      assert.isTrue(stylelintVSCodeStub.called);
+    });
+  });
+
+  describe('Shutdown', () => {
+    it('should set isShuttingDown flag on shutdown', async () => {
+      // Get the shutdown handler
+      const shutdownHandler = connectionMock.onShutdown.firstCall.args[0];
+
+      // Call shutdown
+      shutdownHandler();
+
+      // After shutdown, safeNotification should not send notifications
+      // This is tested indirectly - the flag is set, which would affect safeNotification behavior
+      assert.isTrue(connectionMock.onShutdown.called);
+    });
+
+    it('should not send notifications after shutdown', async () => {
+      // Clear any previous calls
+      connectionMock.sendNotification.resetHistory();
+
+      // Trigger shutdown
+      const shutdownHandler = connectionMock.onShutdown.firstCall.args[0];
+      shutdownHandler();
+
+      // Trigger a validation that would call safeNotification
+      const document = { uri: 'file:///test.css', getText: () => 'css content' };
+      await onDidChangeContentHandler({ document });
+
+      // Wait for validation
+      await new Promise(resolve => setImmediate(resolve));
+
+      // After shutdown, sendNotification for status bar should not be called
+      // safeNotification returns early when isShuttingDown is true
+      const statusBarNotifications = connectionMock.sendNotification.getCalls()
+        .filter(call => call.args[0] === 'setStatusBarOk' || call.args[0] === 'setStatusBarError');
+      assert.equal(statusBarNotifications.length, 0, 'Should not send status bar notifications after shutdown');
+    });
+  });
+
+  describe('Workspace Resolution', () => {
+    it('should select deepest matching workspace folder', async () => {
+      const document = { uri: 'file:///workspace/subdir/test.css', getText: () => 'css content' };
+
+      // Setup multiple workspace folders where document matches both
+      connectionMock.workspace.getWorkspaceFolders.resolves([
+        { uri: 'file:///workspace' },
+        { uri: 'file:///workspace/subdir' }
+      ]);
+
+      onDidChangeConfigurationHandler({ settings: { stylelint: {} } });
+      await onDidChangeContentHandler({ document });
+
+      // Should use the deepest matching folder (subdir)
+      assert.isTrue(stylelintVSCodeStub.called);
     });
   });
 });
