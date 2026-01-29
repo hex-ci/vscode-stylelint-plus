@@ -309,4 +309,69 @@ describe('Extension Activation', () => {
     // Should have called stop
     assert.isTrue(clientInstanceMock.stop.called);
   });
+
+  it('should start client when configuration changes to enabled', async () => {
+    // Mock getConfiguration to return false initially (disabled)
+    const getConfigStub = sinon.stub();
+    getConfigStub.withArgs('enable').returns(false);
+
+    const vscodeMockWithConfig = {
+      ...vscodeMock,
+      workspace: {
+        ...vscodeMock.workspace,
+        getConfiguration: sinon.stub().returns({ get: getConfigStub })
+      }
+    };
+
+    const { activate } = proxyquire('../../src/index', {
+      'vscode': vscodeMockWithConfig,
+      'vscode-languageclient': languageClientMock,
+      'path': { join: (...args) => args.join('/') }
+    });
+
+    const context = { subscriptions: [], asAbsolutePath: (p) => `/abs/${p}` };
+    activate(context);
+
+    // Get the configuration change handler
+    const configChangeHandler = vscodeMockWithConfig.workspace.onDidChangeConfiguration.firstCall.args[0];
+
+    clientInstanceMock.start = sinon.stub();
+
+    // Change mock to return true for 'enable' (simulating user enabling stylelint)
+    getConfigStub.withArgs('enable').returns(true);
+
+    // Simulate configuration change to enable
+    configChangeHandler({
+      affectsConfiguration: (key) => key === 'stylelint.enable'
+    });
+
+    // Should have called start
+    assert.isTrue(clientInstanceMock.start.called);
+  });
+
+  it('should ignore configuration changes not affecting stylelint.enable', async () => {
+    const { activate } = proxyquire('../../src/index', {
+      'vscode': vscodeMock,
+      'vscode-languageclient': languageClientMock,
+      'path': { join: (...args) => args.join('/') }
+    });
+
+    const context = { subscriptions: [], asAbsolutePath: (p) => `/abs/${p}` };
+    activate(context);
+
+    // Get the configuration change handler
+    const configChangeHandler = vscodeMock.workspace.onDidChangeConfiguration.firstCall.args[0];
+
+    clientInstanceMock.start = sinon.stub();
+    clientInstanceMock.stop = sinon.stub();
+
+    // Simulate configuration change that does NOT affect stylelint.enable
+    configChangeHandler({
+      affectsConfiguration: (key) => key !== 'stylelint.enable'
+    });
+
+    // Should NOT have called start or stop
+    assert.isFalse(clientInstanceMock.start.called);
+    assert.isFalse(clientInstanceMock.stop.called);
+  });
 });

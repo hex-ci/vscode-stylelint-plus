@@ -73,15 +73,11 @@ exports.activate = ({subscriptions}) => {
   });
 
   function startClient() {
-    if (client) {
-      client.start();
-    }
+    client.start();
   }
 
   function stopClient() {
-    if (client) {
-      client.stop();
-    }
+    client.stop();
   }
 
   const config = workspace.getConfiguration('stylelint');
@@ -111,11 +107,6 @@ exports.activate = ({subscriptions}) => {
 
   subscriptions.push(
     commands.registerCommand('stylelint.executeAutofix', async (uriArg, diagnosticArg) => {
-      if (!client) {
-        window.showInformationMessage('Stylelint is not running.');
-        return;
-      }
-
       await client.onReady();
 
       let uri = uriArg;
