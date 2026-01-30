@@ -374,4 +374,63 @@ describe('Extension Activation', () => {
     assert.isFalse(clientInstanceMock.start.called);
     assert.isFalse(clientInstanceMock.stop.called);
   });
+
+  it('should handle client start failure', async () => {
+    const startError = new Error('Failed to start language server');
+
+    // Create a new client instance where onReady rejects
+    const failingClientInstance = {
+      start: sinon.stub(),
+      onReady: sinon.stub().rejects(startError),
+      stop: sinon.stub(),
+      sendRequest: sinon.stub(),
+      onRequest: sinon.stub(),
+      onNotification: sinon.stub()
+    };
+
+    const FailingLanguageClient = sinon.spy(function() {
+      return failingClientInstance;
+    });
+
+    const failingLanguageClientMock = {
+      LanguageClient: FailingLanguageClient,
+      TransportKind: { ipc: 1 },
+      SettingMonitor: sinon.stub().returns({ start: sinon.stub() })
+    };
+
+    vscodeMock.window.showErrorMessage = sinon.stub();
+
+    const { activate } = proxyquire('../../src/index', {
+      'vscode': vscodeMock,
+      'vscode-languageclient': failingLanguageClientMock,
+      'path': { join: (...args) => args.join('/') }
+    });
+
+    const context = { subscriptions: [], asAbsolutePath: (p) => `/abs/${p}` };
+    activate(context);
+
+    // Wait for onReady promise to be rejected and catch handler to execute
+    await new Promise(resolve => setImmediate(resolve));
+    await new Promise(resolve => setImmediate(resolve));
+    await new Promise(resolve => setImmediate(resolve));
+
+    assert.isTrue(vscodeMock.window.showErrorMessage.calledWith('Stylelint+ extension failed to start'));
+  });
+
+  it('should deactivate and stop client', async () => {
+    const { activate, deactivate } = proxyquire('../../src/index', {
+      'vscode': vscodeMock,
+      'vscode-languageclient': languageClientMock,
+      'path': { join: (...args) => args.join('/') }
+    });
+
+    const context = { subscriptions: [], asAbsolutePath: (p) => `/abs/${p}` };
+    activate(context);
+
+    clientInstanceMock.stop = sinon.stub().resolves();
+
+    await deactivate();
+
+    assert.isTrue(clientInstanceMock.stop.called);
+  });
 });

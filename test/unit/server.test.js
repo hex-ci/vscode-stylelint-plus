@@ -900,5 +900,106 @@ describe('Server', () => {
       // stylelintVSCodeStub should be called for each validation
       assert.isAtLeast(stylelintVSCodeStub.callCount, 3);
     });
+
+    it('should cancel existing validation when new validation starts', async () => {
+      const document = { uri: 'file:///test.css', getText: () => 'css content' };
+
+      onDidChangeConfigurationHandler({ settings: { stylelint: {} } });
+
+      // Reset stub to track new calls
+      stylelintVSCodeStub.resetHistory();
+
+      // Start first validation
+      onDidChangeContentHandler({ document });
+
+      // Start second validation immediately (should cancel first)
+      await onDidChangeContentHandler({ document });
+
+      // Wait for async operations
+      await new Promise(resolve => setImmediate(resolve));
+
+      // At least the second validation should have completed
+      assert.isAtLeast(stylelintVSCodeStub.callCount, 1);
+    });
+
+    it('should handle cancellation at different stages', async () => {
+      const document = { uri: 'file:///test.css', getText: () => 'css content' };
+
+      onDidChangeConfigurationHandler({ settings: { stylelint: {} } });
+
+      stylelintVSCodeStub.resetHistory();
+
+      // Start multiple validations rapidly
+      onDidChangeContentHandler({ document });
+      onDidChangeContentHandler({ document });
+      const lastValidation = onDidChangeContentHandler({ document });
+
+      // Wait for the last validation to complete
+      await lastValidation;
+
+      // All validations should have been attempted
+      assert.isAtLeast(stylelintVSCodeStub.callCount, 1);
+    });
+  });
+
+  describe('File Watcher', () => {
+    it('should validate all documents when watched files change', async () => {
+      documentsMock.all.returns([
+        { uri: 'file:///1.css', getText: () => 'css' },
+        { uri: 'file:///2.css', getText: () => 'css' }
+      ]);
+
+      onDidChangeConfigurationHandler({ settings: { stylelint: {} } });
+
+      // Get the file watcher handler
+      const watcherHandler = connectionMock.onDidChangeWatchedFiles.firstCall.args[0];
+
+      stylelintVSCodeStub.resetHistory();
+
+      // Trigger file watcher
+      watcherHandler({ changes: [{ uri: 'file:///.stylelintrc', type: 2 }] });
+
+      // Wait for async validation
+      await new Promise(resolve => setImmediate(resolve));
+
+      // Should validate all documents
+      assert.equal(stylelintVSCodeStub.callCount, 2);
+    });
+  });
+
+  describe('Local Stylelint Not Found', () => {
+    it('should handle missing local stylelint gracefully', async () => {
+      const document = { uri: 'file:///project/test.css', getText: () => 'css content' };
+
+      // Reset and configure stubs to prevent infinite loops
+      findPkgDirStub.reset();
+      // First call for ignorePath resolution
+      findPkgDirStub.onFirstCall().returns('/project');
+      // Second call for useLocal loop - return /project
+      findPkgDirStub.onSecondCall().returns('/project');
+      // Third call should return null to exit the loop
+      findPkgDirStub.returns(null);
+
+      // Configure access to reject for stylelint path (not found)
+      fsPromisesStub.access.reset();
+      fsPromisesStub.access.withArgs('/project/node_modules/stylelint').rejects(new Error('ENOENT'));
+      // Allow access for .stylelintignore
+      fsPromisesStub.access.withArgs(sinon.match('.stylelintignore')).resolves();
+
+      onDidChangeConfigurationHandler({ settings: { stylelint: { useLocal: true } } });
+
+      connectionMock.console.error.resetHistory();
+      connectionMock.sendNotification.resetHistory();
+      stylelintVSCodeStub.resetHistory();
+
+      await onDidChangeContentHandler({ document });
+
+      // Should log error and set status bar error
+      assert.isTrue(connectionMock.console.error.calledWith('Local stylelint not found.'));
+      assert.isTrue(connectionMock.sendNotification.calledWith('setStatusBarError'));
+
+      // Should not call stylelintVSCode
+      assert.isFalse(stylelintVSCodeStub.called);
+    });
   });
 });

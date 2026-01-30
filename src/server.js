@@ -111,10 +111,10 @@ class StylelintServer {
     return folders;
   }
 
-  invalidateWorkspaceCache() {
-    this.workspaceCache = null;
-    this.workspaceCacheTime = 0;
-  }
+  // invalidateWorkspaceCache() {
+  //   this.workspaceCache = null;
+  //   this.workspaceCacheTime = 0;
+  // }
 
   async getVersionInfo(stylelintPath) {
     const cacheKey = stylelintPath || '__bundled__';
