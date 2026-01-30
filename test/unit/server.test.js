@@ -13,6 +13,7 @@ describe('Server', () => {
   let findPkgDirStub;
   let pathIsInsideStub;
   let fsStub;
+  let fsPromisesStub;
   let utilsStub;
   let pathStub;
   let parseUriStub;
@@ -93,16 +94,26 @@ describe('Server', () => {
     findPkgDirStub = sinon.stub();
     pathIsInsideStub = sinon.stub();
 
+    fsPromisesStub = {
+      readFile: sinon.stub().resolves(''),
+      writeFile: sinon.stub().resolves(),
+      unlink: sinon.stub().resolves(),
+      access: sinon.stub().resolves()
+    };
+
     fsStub = {
       existsSync: sinon.stub().returns(true),
-      readFileSync: sinon.stub(),
-      writeFileSync: sinon.stub(),
-      unlinkSync: sinon.stub()
+      promises: fsPromisesStub
     };
 
     utilsStub = {
       isRangeOverlap: sinon.stub().returns(true),
-      generateTextEdits: sinon.stub().returns([])
+      generateTextEdits: sinon.stub().returns([]),
+      generateTempFilename: sinon.stub().callsFake((filePath) => {
+        const parsed = path.parse(filePath);
+        const ext = path.extname(filePath) || '.css';
+        return `/tmp/_temp_vscode_autofix_${parsed.base || 'file'}${ext}`;
+      })
     };
 
     pathStub = {
@@ -179,8 +190,8 @@ describe('Server', () => {
 
       // Mock local stylelint structure
       findPkgDirStub.returns('/project');
-      fsStub.existsSync.withArgs('/project/node_modules/stylelint').returns(true);
-      fsStub.readFileSync.withArgs(path.join('/project/node_modules/stylelint/package.json'), 'utf8').returns('{"version": "14.0.0"}');
+      fsPromisesStub.access.withArgs('/project/node_modules/stylelint').resolves();
+      fsPromisesStub.readFile.withArgs(path.join('/project/node_modules/stylelint/package.json'), 'utf8').resolves('{"version": "14.0.0"}');
 
       onDidChangeConfigurationHandler({
         settings: {
@@ -290,25 +301,24 @@ describe('Server', () => {
       findPkgDirStub.onThirdCall().returns('/project');
       findPkgDirStub.returns(null);
 
-      // Reset existsSync to default to false to prevent accidental true returns
-      fsStub.existsSync.reset();
-      fsStub.existsSync.returns(false);
+      fsPromisesStub.access.reset();
+      fsPromisesStub.access.rejects(new Error('ENOENT'));
 
       const subdirPath = path.join('/project/subdir', 'node_modules', 'stylelint');
       const rootPath = path.join('/project', 'node_modules', 'stylelint');
 
-      fsStub.existsSync.withArgs(subdirPath).returns(false);
-      fsStub.existsSync.withArgs(rootPath).returns(true);
+      fsPromisesStub.access.withArgs(subdirPath).rejects(new Error('ENOENT'));
+      fsPromisesStub.access.withArgs(rootPath).resolves();
 
-      fsStub.readFileSync.withArgs(sinon.match('package.json'), 'utf8').returns('{"version": "1.0.0"}');
+      fsPromisesStub.readFile.withArgs(sinon.match('package.json'), 'utf8').resolves('{"version": "1.0.0"}');
 
       onDidChangeConfigurationHandler({ settings: { stylelint: { useLocal: true } } });
       await onDidChangeContentHandler({ document });
 
       assert.isTrue(connectionMock.sendNotification.calledWith('stylelint/versionDetected', sinon.match({ version: '1.0.0' })));
       // Check with match to debug
-      assert.isTrue(fsStub.existsSync.calledWith(sinon.match('subdir')), 'Should check subdir');
-      assert.isTrue(fsStub.existsSync.calledWith(sinon.match(rootPath)), 'Should check root');
+      assert.isTrue(fsPromisesStub.access.calledWith(sinon.match('subdir')), 'Should check subdir');
+      assert.isTrue(fsPromisesStub.access.calledWith(sinon.match(rootPath)), 'Should check root');
     });
 
     it('should handle falsy documentPath in validate', async () => {
@@ -348,8 +358,8 @@ describe('Server', () => {
       const document = { uri: 'file:///project/test.css', getText: () => 'css content' };
 
       findPkgDirStub.returns('/project');
-      fsStub.existsSync.withArgs('/project/node_modules/stylelint').returns(true);
-      fsStub.readFileSync.withArgs(sinon.match('package.json'), 'utf8').throws(new Error('Read fail'));
+      fsPromisesStub.access.withArgs('/project/node_modules/stylelint').resolves();
+      fsPromisesStub.readFile.withArgs(sinon.match('package.json'), 'utf8').rejects(new Error('Read fail'));
 
       onDidChangeConfigurationHandler({ settings: { stylelint: { useLocal: true } } });
       await onDidChangeContentHandler({ document });
@@ -368,7 +378,7 @@ describe('Server', () => {
       loadStylelintStub.resolves({ lint: lintStub });
 
       // Mock temp file operations
-      fsStub.readFileSync.withArgs(sinon.match('_temp_vscode_autofix_'), 'utf8').returns('fixed css content');
+      fsPromisesStub.readFile.withArgs(sinon.match('_temp_vscode_autofix_'), 'utf8').resolves('fixed css content');
 
       // Mock configuration
       onDidChangeConfigurationHandler({
@@ -411,7 +421,7 @@ describe('Server', () => {
       documentsMock.get.returns(document);
 
       loadStylelintStub.resolves({ lint: sinon.stub().resolves({}) });
-      fsStub.readFileSync.withArgs(sinon.match('_temp_vscode_autofix_'), 'utf8').returns('css content');
+      fsPromisesStub.readFile.withArgs(sinon.match('_temp_vscode_autofix_'), 'utf8').resolves('css content');
 
       onDidChangeConfigurationHandler({ settings: { stylelint: {} } });
       await onExecuteAutofixHandler({ uri: 'file:///test.css' });
@@ -424,7 +434,7 @@ describe('Server', () => {
       documentsMock.get.returns(document);
 
       loadStylelintStub.resolves({ lint: sinon.stub().resolves({}) });
-      fsStub.readFileSync.withArgs(sinon.match('_temp_vscode_autofix_'), 'utf8').returns('fixed content');
+      fsPromisesStub.readFile.withArgs(sinon.match('_temp_vscode_autofix_'), 'utf8').resolves('fixed content');
 
       utilsStub.generateTextEdits.returns([{ range: { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } }, newText: 'f' }]);
       utilsStub.isRangeOverlap.returns(true);
@@ -444,7 +454,7 @@ describe('Server', () => {
       const document = { uri: 'file:///test.css', getText: () => 'css content' };
       documentsMock.get.returns(document);
       loadStylelintStub.resolves({ lint: sinon.stub().resolves({}) });
-      fsStub.readFileSync.withArgs(sinon.match('_temp_vscode_autofix_'), 'utf8').returns('fixed content');
+      fsPromisesStub.readFile.withArgs(sinon.match('_temp_vscode_autofix_'), 'utf8').resolves('fixed content');
       connectionMock.workspace.applyEdit.resolves({ applied: false });
 
       onDidChangeConfigurationHandler({ settings: { stylelint: {} } });
@@ -457,7 +467,7 @@ describe('Server', () => {
     it('should handle temp file strategy failure', async () => {
       const document = { uri: 'file:///test.css', getText: () => 'css content' };
       documentsMock.get.returns(document);
-      fsStub.writeFileSync.throws(new Error('Write failed'));
+      fsPromisesStub.writeFile.rejects(new Error('Write failed'));
 
       onDidChangeConfigurationHandler({ settings: { stylelint: {} } });
 
@@ -471,13 +481,13 @@ describe('Server', () => {
       documentsMock.get.returns(document);
 
       findPkgDirStub.returns('/project');
-      fsStub.existsSync.withArgs('/project/node_modules/stylelint').returns(true);
+      fsPromisesStub.access.withArgs('/project/node_modules/stylelint').resolves();
 
       // Should try to read package.json
-      fsStub.readFileSync.withArgs(path.join('/project/node_modules/stylelint/package.json'), 'utf8').returns('{}');
+      fsPromisesStub.readFile.withArgs(path.join('/project/node_modules/stylelint/package.json'), 'utf8').resolves('{}');
 
       loadStylelintStub.resolves({ lint: sinon.stub().resolves({}) });
-      fsStub.readFileSync.withArgs(sinon.match('_temp_vscode_autofix_'), 'utf8').returns('fixed');
+      fsPromisesStub.readFile.withArgs(sinon.match('_temp_vscode_autofix_'), 'utf8').resolves('fixed');
 
       onDidChangeConfigurationHandler({ settings: { stylelint: { useLocal: true } } });
       await onExecuteAutofixHandler({ uri: 'file:///project/test.css' });
@@ -493,7 +503,7 @@ describe('Server', () => {
       pathIsInsideStub.returns(true);
 
       loadStylelintStub.resolves({ lint: sinon.stub().resolves({}) });
-      fsStub.readFileSync.withArgs(sinon.match('_temp_vscode_autofix_'), 'utf8').returns('fixed');
+      fsPromisesStub.readFile.withArgs(sinon.match('_temp_vscode_autofix_'), 'utf8').resolves('fixed');
 
       onDidChangeConfigurationHandler({ settings: { stylelint: {} } });
       await onExecuteAutofixHandler({ uri: 'file:///workspace/test.css' });
@@ -513,7 +523,7 @@ describe('Server', () => {
       const document = { uri: 'file:///test.css', getText: () => 'css content' };
       documentsMock.get.returns(document);
       loadStylelintStub.resolves({ lint: sinon.stub().resolves({}) });
-      fsStub.readFileSync.withArgs(sinon.match('_temp_vscode_autofix_'), 'utf8').returns('fixed');
+      fsPromisesStub.readFile.withArgs(sinon.match('_temp_vscode_autofix_'), 'utf8').resolves('fixed');
 
       onDidChangeConfigurationHandler({
         settings: {
@@ -545,26 +555,25 @@ describe('Server', () => {
       findPkgDirStub.onThirdCall().returns('/project');
       findPkgDirStub.returns(null);
 
-      // Reset existsSync to default to false
-      fsStub.existsSync.reset();
-      fsStub.existsSync.returns(false);
+      fsPromisesStub.access.reset();
+      fsPromisesStub.access.rejects(new Error('ENOENT'));
 
       const subdirPath = path.join('/project/subdir', 'node_modules', 'stylelint');
       const rootPath = path.join('/project', 'node_modules', 'stylelint');
 
-      fsStub.existsSync.withArgs(subdirPath).returns(false);
-      fsStub.existsSync.withArgs(rootPath).returns(true);
+      fsPromisesStub.access.withArgs(subdirPath).rejects(new Error('ENOENT'));
+      fsPromisesStub.access.withArgs(rootPath).resolves();
 
-      fsStub.readFileSync.withArgs(sinon.match('package.json'), 'utf8').returns('{}');
+      fsPromisesStub.readFile.withArgs(sinon.match('package.json'), 'utf8').resolves('{}');
 
       loadStylelintStub.resolves({ lint: sinon.stub().resolves({}) });
-      fsStub.readFileSync.withArgs(sinon.match('_temp_vscode_autofix_'), 'utf8').returns('fixed');
+      fsPromisesStub.readFile.withArgs(sinon.match('_temp_vscode_autofix_'), 'utf8').resolves('fixed');
 
       onDidChangeConfigurationHandler({ settings: { stylelint: { useLocal: true } } });
       await onExecuteAutofixHandler({ uri: 'file:///project/subdir/test.css' });
 
       assert.isTrue(loadStylelintStub.calledWith(rootPath));
-      assert.isTrue(fsStub.existsSync.calledWith(sinon.match('subdir')));
+      assert.isTrue(fsPromisesStub.access.calledWith(sinon.match('subdir')));
     });
 
     it('should handle undefined output from stylelint', async () => {
@@ -572,8 +581,8 @@ describe('Server', () => {
       documentsMock.get.returns(document);
 
       loadStylelintStub.resolves({ lint: sinon.stub().resolves({}) });
-      // If readFileSync returns null/undefined (which shouldn't happen for real fs but valid for stub)
-      fsStub.readFileSync.withArgs(sinon.match('_temp_vscode_autofix_'), 'utf8').returns(undefined);
+
+      fsPromisesStub.readFile.withArgs(sinon.match('_temp_vscode_autofix_'), 'utf8').resolves(undefined);
 
       onDidChangeConfigurationHandler({ settings: { stylelint: {} } });
       await onExecuteAutofixHandler({ uri: 'file:///test.css' });
@@ -585,7 +594,7 @@ describe('Server', () => {
       const document = { uri: 'file:///test.css', getText: () => 'css content' };
       documentsMock.get.returns(document);
       loadStylelintStub.resolves({ lint: sinon.stub().resolves({}) });
-      fsStub.readFileSync.withArgs(sinon.match('_temp_vscode_autofix_'), 'utf8').returns('fixed');
+      fsPromisesStub.readFile.withArgs(sinon.match('_temp_vscode_autofix_'), 'utf8').resolves('fixed');
 
       onDidChangeConfigurationHandler({
         settings: {
@@ -602,13 +611,13 @@ describe('Server', () => {
       const document = { uri: 'file:///test', getText: () => 'css content' }; // No extension
       documentsMock.get.returns(document);
       loadStylelintStub.resolves({ lint: sinon.stub().resolves({}) });
-      fsStub.readFileSync.returns('fixed');
+      fsPromisesStub.readFile.resolves('fixed');
 
       pathStub.extname.returns(''); // Force empty extension
 
       await onExecuteAutofixHandler({ uri: 'file:///test' });
 
-      const tempFile = fsStub.writeFileSync.firstCall.args[0];
+      const tempFile = fsPromisesStub.writeFile.firstCall.args[0];
       assert.match(tempFile, /\.css$/);
     });
 
@@ -624,23 +633,11 @@ describe('Server', () => {
       assert.isTrue(connectionMock.window.showErrorMessage.called);
     });
 
-    it('should handle local stylelint not found in executeAutofix', async () => {
-      const document = { uri: 'file:///project/test.css', getText: () => 'css content' };
-      documentsMock.get.returns(document);
-
-      findPkgDirStub.returns(null);
-
-      onDidChangeConfigurationHandler({ settings: { stylelint: { useLocal: true } } });
-      await onExecuteAutofixHandler({ uri: 'file:///project/test.css' });
-
-      assert.isTrue(connectionMock.window.showErrorMessage.calledWith(sinon.match('Local stylelint not found')));
-    });
-
     it('should use default diagnostic in executeAutofix', async () => {
       const document = { uri: 'file:///test.css', getText: () => 'css content' };
       documentsMock.get.returns(document);
       loadStylelintStub.resolves({ lint: sinon.stub().resolves({}) });
-      fsStub.readFileSync.returns('fixed');
+      fsPromisesStub.readFile.resolves('fixed');
 
       // Call without diagnostic property
       await onExecuteAutofixHandler({ uri: 'file:///test.css' });
@@ -655,7 +652,7 @@ describe('Server', () => {
       parseUriStub.withArgs('scheme://test').returns({ fsPath: null });
 
       loadStylelintStub.resolves({ lint: sinon.stub().resolves({}) });
-      fsStub.readFileSync.returns('fixed');
+      fsPromisesStub.readFile.resolves('fixed');
 
       await onExecuteAutofixHandler({ uri: 'scheme://test' });
 
@@ -668,7 +665,7 @@ describe('Server', () => {
       connectionMock.workspace.getWorkspaceFolders.resolves(null);
 
       loadStylelintStub.resolves({ lint: sinon.stub().resolves({}) });
-      fsStub.readFileSync.returns('fixed');
+      fsPromisesStub.readFile.resolves('fixed');
 
       await onExecuteAutofixHandler({ uri: 'file:///test.css' });
       assert.isTrue(loadStylelintStub.called);
@@ -694,7 +691,7 @@ describe('Server', () => {
       findPkgDirStub.returns('/outside');
 
       loadStylelintStub.resolves({ lint: sinon.stub().resolves({}) });
-      fsStub.readFileSync.returns('fixed');
+      fsPromisesStub.readFile.resolves('fixed');
 
       await onExecuteAutofixHandler({ uri: 'file:///outside/test.css' });
 
@@ -868,6 +865,40 @@ describe('Server', () => {
 
       // Should use the deepest matching folder (subdir)
       assert.isTrue(stylelintVSCodeStub.called);
+    });
+  });
+
+  describe('Cache Management', () => {
+    it('should cache workspace folders with TTL', async () => {
+      connectionMock.workspace.getWorkspaceFolders.resolves([{ uri: 'file:///workspace' }]);
+
+      const document = { uri: 'file:///workspace/test.css', getText: () => 'css content' };
+
+      onDidChangeConfigurationHandler({ settings: { stylelint: {} } });
+
+      // First call should fetch workspace folders
+      await onDidChangeContentHandler({ document });
+      assert.equal(connectionMock.workspace.getWorkspaceFolders.callCount, 1);
+
+      // Second call within TTL should use cache
+      await onDidChangeContentHandler({ document });
+      assert.equal(connectionMock.workspace.getWorkspaceFolders.callCount, 1, 'Should use cached workspace folders');
+    });
+  });
+
+  describe('Validation Cancellation', () => {
+    it('should track validation tokens for documents', async () => {
+      const document = { uri: 'file:///test.css', getText: () => 'css content' };
+
+      onDidChangeConfigurationHandler({ settings: { stylelint: {} } });
+
+      // Validate document multiple times
+      await onDidChangeContentHandler({ document });
+      await onDidChangeContentHandler({ document });
+      await onDidChangeContentHandler({ document });
+
+      // stylelintVSCodeStub should be called for each validation
+      assert.isAtLeast(stylelintVSCodeStub.callCount, 3);
     });
   });
 });

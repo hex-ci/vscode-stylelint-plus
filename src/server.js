@@ -416,7 +416,7 @@ class StylelintServer {
         output = await fsPromises.readFile(tempFile, 'utf8');
       }
       catch (err) {
-        connection.console.error(`Temp file strategy failed: ${err.message}`);
+        this.connection.console.error(`Temp file strategy failed: ${err.message}`);
         throw err;
       }
       finally {

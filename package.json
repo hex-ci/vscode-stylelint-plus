@@ -127,7 +127,7 @@
     "package": "vsce package",
     "pretest": "npm run compile",
     "test": "node scripts/run-test.js",
-    "test:unit": "mocha test/unit/*.test.js",
+    "test:unit": "mocha test/unit/*.test.js --exit --timeout 5000",
     "coverage": "nyc --reporter=text --reporter=lcov --reporter=cobertura --reporter=clover --reporter=json npm run test:unit"
   },
   "dependencies": {

@@ -13,6 +13,7 @@ describe('Server Ignore Handling', () => {
   let findPkgDirStub;
   let pathIsInsideStub;
   let fsStub;
+  let fsPromisesStub;
   let utilsStub;
   let pathStub;
   let parseUriStub;
@@ -65,16 +66,26 @@ describe('Server Ignore Handling', () => {
     findPkgDirStub = sinon.stub();
     pathIsInsideStub = sinon.stub();
 
+    fsPromisesStub = {
+      readFile: sinon.stub(),
+      writeFile: sinon.stub(),
+      unlink: sinon.stub(),
+      access: sinon.stub()
+    };
+
     fsStub = {
       existsSync: sinon.stub().returns(true),
-      readFileSync: sinon.stub(),
-      writeFileSync: sinon.stub(),
-      unlinkSync: sinon.stub()
+      promises: fsPromisesStub
     };
 
     utilsStub = {
       isRangeOverlap: sinon.stub().returns(true),
-      generateTextEdits: sinon.stub().returns([])
+      generateTextEdits: sinon.stub().returns([]),
+      generateTempFilename: sinon.stub().callsFake((filePath) => {
+        const parsed = path.parse(filePath);
+        const ext = path.extname(filePath) || '.css';
+        return `/tmp/_temp_vscode_autofix_${parsed.base || 'file'}${ext}`;
+      })
     };
 
     pathStub = {
@@ -134,7 +145,7 @@ describe('Server Ignore Handling', () => {
     pathIsInsideStub.returns(true);
 
     // Mock existsSync to return false for all nested paths
-    fsStub.existsSync.returns(false);
+    fsPromisesStub.access.rejects(new Error('ENOENT'));
 
     onDidChangeConfigurationHandler({ settings: { stylelint: {} } });
     await onDidChangeContentHandler({ document });

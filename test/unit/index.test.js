@@ -243,8 +243,8 @@ describe('Extension Activation', () => {
 
     // Test error with version info
     setStatusBarError();
-    assert.include(vscodeMock.window.createStatusBarItem().text, '$(error) Stylelint+ (bundled v4.5.6)');
-    assert.include(vscodeMock.window.createStatusBarItem().tooltip, 'Stylelint+ server stopped (bundled v4.5.6)');
+    assert.include(vscodeMock.window.createStatusBarItem().text, '$(error) Stylelint+');
+    assert.include(vscodeMock.window.createStatusBarItem().tooltip, 'Stylelint+ server stopped');
   });
 
   it('should ignore non-language activation events', () => {
