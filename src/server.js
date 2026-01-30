@@ -1,11 +1,10 @@
 'use strict';
 
-const fs = require('fs');
+const fsPromises = require('fs').promises;
 const {
   join,
   parse,
   resolve,
-  extname,
   dirname
 } = require('path');
 const {
@@ -18,356 +17,474 @@ const findPkgDir = require('find-pkg-dir');
 const parseUri = require('vscode-uri').URI.parse;
 const stylelintVSCode = require('./stylelint-vscode');
 const loadStylelint = require('./load-stylelint');
-const { isRangeOverlap, generateTextEdits } = require('./utils');
+const { isRangeOverlap, generateTextEdits, generateTempFilename } = require('./utils');
 
-let config;
-let configOverrides;
-let autoFixOnSave;
-let useLocal;
-let disableErrorMessage;
-let detectedStylelintVersion = null;
-let isUsingLocal = false;
-let isShuttingDown = false;
+const STYLELINT_ERROR_CODE_CONFIG = 78;
+const DIAGNOSTIC_OVERLAP_LINE_THRESHOLD = 1;
+const DIAGNOSTIC_OVERLAP_CHAR_THRESHOLD = 2;
+const VERSION_CACHE_TTL = 5000;
+const WORKSPACE_CACHE_TTL = 1000;
 
-const connection = createConnection(ProposedFeatures.all);
-const documents = new TextDocuments();
-const documentDiagnostics = new Map();
+class StylelintServer {
+  constructor(connection, documents) {
+    this.connection = connection;
+    this.documents = documents;
+    this.documentDiagnostics = new Map();
 
-function safeNotification(method) {
-  if (isShuttingDown) {
-    return;
+    // Configuration
+    this.config = null;
+    this.configOverrides = null;
+    this.autoFixOnSave = false;
+    this.useLocal = false;
+    this.disableErrorMessage = false;
+
+    // State
+    this.detectedStylelintVersion = null;
+    this.isUsingLocal = false;
+    this.isShuttingDown = false;
+
+    // Caches
+    this.versionCache = new Map();
+    this.workspaceCache = null;
+    this.workspaceCacheTime = 0;
+
+    // Validation tokens for cancellation
+    this.validationTokens = new Map();
   }
 
-  connection.sendNotification(method);
-}
-
-function getWorkspaceForDocument(documentUri, folders) {
-  if (!folders) {
-    return undefined;
-  }
-
-  const docUri = parseUri(documentUri);
-
-  return folders
-    .filter(folder =>
-      docUri.toString().startsWith(parseUri(folder.uri).toString())
-    )
-    .sort((a, b) => b.uri.length - a.uri.length)[0];
-}
-
-async function resolveStylelintOptions(documentUri) {
-  let stopPath = null;
-  const documentPath = parseUri(documentUri).fsPath;
-
-  const folders = await connection.workspace.getWorkspaceFolders();
-
-  const workspace = getWorkspaceForDocument(documentPath, folders);
-
-  if (workspace) {
-    stopPath = parseUri(workspace.uri).fsPath;
-  }
-
-  if (!stopPath) {
-    stopPath = findPkgDir(documentPath) || parse(documentPath).root;
-  }
-
-  const normalizedStopPath = stopPath.replace(/[\/\\]+$/, '');
-  const normalizedDocDir = parse(documentPath).dir.replace(/[\/\\]+$/, '');
-
-  // Look for closest .stylelintignore up to stopPath
-  let dir = normalizedDocDir;
-  let ignorePath = join(normalizedStopPath, '.stylelintignore');
-
-  while (dir && dir !== normalizedStopPath) {
-    const candidate = join(dir, '.stylelintignore');
-
-    if (fs.existsSync(candidate)) {
-      ignorePath = candidate;
-      break;
+  safeNotification(method) {
+    if (this.isShuttingDown) {
+      return;
     }
 
-    dir = parse(dir).dir;
+    this.connection.sendNotification(method);
   }
 
-  const result = {ignorePath};
+  handleStylelintError(err, context = 'validation') {
+    this.connection.console.error(`stylelint ${context} error: ${err.stack}`);
+    this.safeNotification('setStatusBarError');
 
-  if (useLocal) {
-    let localDir;
-    let startDir = documentPath;
-
-    while ((localDir = findPkgDir(startDir))) {
-      const localPath = join(localDir, 'node_modules', 'stylelint');
-
-      if (fs.existsSync(localPath)) {
-        result.path = localPath;
-        break;
-      }
-
-      startDir = resolve(localDir, '..');
-    }
-  }
-
-  return result;
-}
-
-async function validate(document, isAutoFixOnSave = false) {
-  const options = {
-    fix: isAutoFixOnSave
-  };
-
-  if (config) {
-    options.config = config;
-  }
-
-  if (configOverrides) {
-    options.configOverrides = configOverrides;
-  }
-
-  const documentPath = parseUri(document.uri).fsPath;
-
-  if (documentPath) {
-    const folders = await connection.workspace.getWorkspaceFolders();
-
-    const workspace = getWorkspaceForDocument(document.uri, folders);
-
-    if (workspace) {
-      options.cwd = parseUri(workspace.uri).fsPath;
-    }
-    else {
-      options.cwd = dirname(documentPath);
-    }
-
-    const {ignorePath, path: stylelintPath} = await resolveStylelintOptions(document.uri);
-
-    options.ignorePath = ignorePath;
-
-    if (useLocal) {
-      if (!stylelintPath) {
-        safeNotification('setStatusBarError');
-        return;
-      }
-
-      options.path = stylelintPath;
-
-      try {
-        const pkgPath = join(stylelintPath, 'package.json');
-        const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
-
-        detectedStylelintVersion = pkg.version;
-
-        isUsingLocal = true;
-      }
-      catch (_err) {
-        detectedStylelintVersion = 'unknown';
-        isUsingLocal = true;
-      }
-    }
-    else {
-      safeNotification('setStatusBarOk');
-
-      try {
-        const bundledPkg = require('../package.json');
-        detectedStylelintVersion = bundledPkg.dependencies.stylelint.replace(/[\^~]/, '');
-        isUsingLocal = false;
-      }
-      catch (_err) {
-        detectedStylelintVersion = '15.x';
-        isUsingLocal = false;
-      }
-    }
-  }
-
-  connection.sendNotification('stylelint/versionDetected', {
-    version: detectedStylelintVersion,
-    isLocal: isUsingLocal
-  });
-
-  try {
-    const diagnostics = await stylelintVSCode(document, options);
-
-    connection.sendDiagnostics({
-      uri: document.uri,
-      diagnostics
-    });
-
-    documentDiagnostics.set(document.uri, diagnostics);
-
-    safeNotification('setStatusBarOk');
-  }
-  catch (err) {
-    connection.console.error(`stylelint error: ${err}`);
-
-    safeNotification('setStatusBarError');
-
-    if (disableErrorMessage) {
+    if (this.disableErrorMessage) {
       return;
     }
 
     if (err.reasons) {
       for (const reason of err.reasons) {
-        connection.window.showErrorMessage(`stylelint: ${reason}`);
+        this.connection.window.showErrorMessage(`stylelint: ${reason}`);
       }
-
       return;
     }
 
-    // https://github.com/stylelint/stylelint/blob/10.0.1/lib/utils/configurationError.js#L10
-    if (err.code === 78) {
-      connection.window.showErrorMessage(`stylelint: ${err.message}`);
+    if (err.code === STYLELINT_ERROR_CODE_CONFIG) {
+      this.connection.window.showErrorMessage(`stylelint: ${err.message}`);
       return;
     }
 
-    connection.window.showErrorMessage(err.stack.replace(/\n/ug, ' '));
-  }
-}
-
-function validateAll() {
-  for (const document of documents.all()) {
-    validate(document);
-  }
-}
-
-async function executeAutofix(uri, diagnostic = null) {
-  const document = documents.get(uri);
-
-  if (!document) {
-    connection.console.error(`Document not found for URI: ${uri}`);
-
-    return;
+    this.connection.window.showErrorMessage(err.stack.replace(/\n/ug, ' '));
   }
 
-  try {
-    const documentPath = parseUri(document.uri).fsPath;
-    const options = {};
-
-    if (config) {
-      if (Object.keys(config).length > 0) {
-        options.config = config;
-      }
+  getWorkspaceForDocument(documentUri, folders) {
+    if (!folders) {
+      return undefined;
     }
 
-    if (configOverrides) {
-      options.configOverrides = configOverrides;
+    const docUri = parseUri(documentUri);
+
+    return folders
+      .filter(folder =>
+        docUri.toString().startsWith(parseUri(folder.uri).toString())
+      )
+      .sort((a, b) => b.uri.length - a.uri.length)[0];
+  }
+
+  async getWorkspaceFolders() {
+    const now = Date.now();
+
+    if (this.workspaceCache && (now - this.workspaceCacheTime) < WORKSPACE_CACHE_TTL) {
+      return this.workspaceCache;
     }
 
-    if (documentPath) {
-      const {ignorePath, path: stylelintPath} = await resolveStylelintOptions(documentPath);
+    const folders = await this.connection.workspace.getWorkspaceFolders();
+    this.workspaceCache = folders;
+    this.workspaceCacheTime = now;
 
-      options.ignorePath = ignorePath;
+    return folders;
+  }
 
-      if (useLocal) {
-        if (!stylelintPath) {
-          safeNotification('setStatusBarError');
-          connection.window.showErrorMessage('Local stylelint not found');
-          return;
-        }
-        options.path = stylelintPath;
-      }
+  invalidateWorkspaceCache() {
+    this.workspaceCache = null;
+    this.workspaceCacheTime = 0;
+  }
+
+  async getVersionInfo(stylelintPath) {
+    const cacheKey = stylelintPath || '__bundled__';
+    const cached = this.versionCache.get(cacheKey);
+    const now = Date.now();
+
+    if (cached && (now - cached.timestamp) < VERSION_CACHE_TTL) {
+      return {
+        version: cached.version,
+        isLocal: cached.isLocal
+      };
     }
 
-    const originalText = document.getText();
+    let version;
+    let isLocal;
 
-    const stylelintModule = await loadStylelint(options.path, {fallbackToBundled: true});
-    const {lint} = stylelintModule;
-
-    if (options.path) {
+    if (stylelintPath) {
       try {
-        JSON.parse(fs.readFileSync(join(options.path, 'package.json'), 'utf8'));
+        const pkgPath = join(stylelintPath, 'package.json');
+        const pkgContent = await fsPromises.readFile(pkgPath, 'utf8');
+        const pkg = JSON.parse(pkgContent);
+        version = pkg.version;
+        isLocal = true;
       }
-      catch (_e) {
+      catch (_err) {
+        version = 'unknown';
+        isLocal = true;
+      }
+    }
+    else {
+      try {
+        const bundledPkg = require('../package.json');
+        version = bundledPkg.dependencies.stylelint.replace(/[\^~]/, '');
+        isLocal = false;
+      }
+      catch (_err) {
+        version = '15.x';
+        isLocal = false;
       }
     }
 
-    const codeFilename = parseUri(document.uri).fsPath;
-    const ext = extname(codeFilename) || '.css';
-    const tempFile = join(parse(codeFilename).dir, `_temp_vscode_autofix_${Date.now()}${ext}`);
+    this.versionCache.set(cacheKey, {
+      version,
+      isLocal,
+      timestamp: now
+    });
 
-    let output;
+    return { version, isLocal };
+  }
+
+  async resolveStylelintOptions(documentUri) {
+    let stopPath = null;
+    const documentPath = parseUri(documentUri).fsPath;
+
+    const folders = await this.getWorkspaceFolders();
+
+    const workspace = this.getWorkspaceForDocument(documentPath, folders);
+
+    if (workspace) {
+      stopPath = parseUri(workspace.uri).fsPath;
+    }
+
+    if (!stopPath) {
+      stopPath = findPkgDir(documentPath) || parse(documentPath).root;
+    }
+
+    const normalizedStopPath = stopPath.replace(/[\/\\]+$/, '');
+    const normalizedDocDir = parse(documentPath).dir.replace(/[\/\\]+$/, '');
+
+    // Look for closest .stylelintignore up to stopPath
+    let dir = normalizedDocDir;
+    let ignorePath = join(normalizedStopPath, '.stylelintignore');
+
+    while (dir && dir !== normalizedStopPath) {
+      const candidate = join(dir, '.stylelintignore');
+
+      try {
+        await fsPromises.access(candidate);
+        ignorePath = candidate;
+        break;
+      }
+      catch {
+      // File doesn't exist, continue to parent
+      }
+
+      dir = parse(dir).dir;
+    }
+
+    const result = {ignorePath};
+
+    if (this.useLocal) {
+      let localDir;
+      let startDir = documentPath;
+
+      while ((localDir = findPkgDir(startDir))) {
+        const localPath = join(localDir, 'node_modules', 'stylelint');
+
+        try {
+          await fsPromises.access(localPath);
+          result.path = localPath;
+          break;
+        }
+        catch {
+        // Path doesn't exist, continue to parent
+        }
+
+        startDir = resolve(localDir, '..');
+      }
+    }
+
+    return result;
+  }
+
+  async validate(document, isAutoFixOnSave = false) {
+    // Cancel any existing validation for this document
+    const existingToken = this.validationTokens.get(document.uri);
+    if (existingToken) {
+      existingToken.cancelled = true;
+    }
+
+    const token = {cancelled: false};
+    this.validationTokens.set(document.uri, token);
 
     try {
-      fs.writeFileSync(tempFile, originalText, 'utf8');
-
-      const fixOptions = {
-        ...options,
-        files: [tempFile],
-        fix: true,
-        quietDeprecationWarnings: true
+      const options = {
+        fix: isAutoFixOnSave
       };
 
-      delete fixOptions.path;
-      delete fixOptions.code;
-      delete fixOptions.codeFilename;
+      if (this.config) {
+        options.config = this.config;
+      }
 
-      await lint(fixOptions);
+      if (this.configOverrides) {
+        options.configOverrides = this.configOverrides;
+      }
 
-      output = fs.readFileSync(tempFile, 'utf8');
+      const documentPath = parseUri(document.uri).fsPath;
+
+      if (documentPath) {
+        const folders = await this.getWorkspaceFolders();
+
+        const workspace = this.getWorkspaceForDocument(document.uri, folders);
+
+        if (workspace) {
+          options.cwd = parseUri(workspace.uri).fsPath;
+        }
+        else {
+          options.cwd = dirname(documentPath);
+        }
+
+        const {ignorePath, path: stylelintPath} = await this.resolveStylelintOptions(document.uri);
+
+        options.ignorePath = ignorePath;
+
+        if (this.useLocal) {
+          if (!stylelintPath) {
+            this.connection.console.error('Local stylelint not found.');
+            this.safeNotification('setStatusBarError');
+
+            return;
+          }
+
+          options.path = stylelintPath;
+
+          const versionInfo = await this.getVersionInfo(stylelintPath);
+          this.detectedStylelintVersion = versionInfo.version;
+          this.isUsingLocal = versionInfo.isLocal;
+        }
+        else {
+          this.safeNotification('setStatusBarOk');
+          const versionInfo = await this.getVersionInfo(null);
+          this.detectedStylelintVersion = versionInfo.version;
+          this.isUsingLocal = versionInfo.isLocal;
+        }
+      }
+
+      // Check if cancelled before proceeding
+      if (token.cancelled) {
+        return;
+      }
+
+      this.connection.sendNotification('stylelint/versionDetected', {
+        version: this.detectedStylelintVersion,
+        isLocal: this.isUsingLocal
+      });
+
+      // Check if cancelled before calling stylelint
+      if (token.cancelled) {
+        return;
+      }
+
+      const diagnostics = await stylelintVSCode(document, options);
+
+      // Check if cancelled before sending diagnostics
+      if (token.cancelled) {
+        return;
+      }
+
+      this.connection.sendDiagnostics({
+        uri: document.uri,
+        diagnostics
+      });
+
+      this.documentDiagnostics.set(document.uri, diagnostics);
+
+      this.safeNotification('setStatusBarOk');
     }
     catch (err) {
-      connection.console.error(`Temp file strategy failed: ${err.message}`);
-      throw err;
+      this.handleStylelintError(err, 'validation');
     }
     finally {
-      if (fs.existsSync(tempFile)) {
-        fs.unlinkSync(tempFile);
+      if (this.validationTokens.get(document.uri) === token) {
+        this.validationTokens.delete(document.uri);
       }
     }
+  }
 
-    if (!output) {
-      return;
-    }
-
-    if (output === originalText) {
-      return;
-    }
-
-    let edit;
-
-    if (diagnostic) {
-      const allEdits = generateTextEdits(document, originalText, output);
-
-      const targetEdits = allEdits.filter((edit) =>
-        isRangeOverlap(edit.range, diagnostic.range , 1, 2)
-      );
-
-      edit = {
-        changes: {
-          [uri]: targetEdits
-        }
-      };
-    }
-
-    if (!edit) {
-      const lines = originalText.split('\n');
-      const lastLine = lines.length - 1;
-      const lastChar = lines[lastLine].length;
-
-      edit = {
-        changes: {
-          [uri]: [{
-            range: {
-              start: {line: 0, character: 0},
-              end: {line: lastLine, character: lastChar}
-            },
-            newText: output
-          }]
-        }
-      };
-    }
-
-    const applyResult = await connection.workspace.applyEdit(edit);
-
-    if (!applyResult.applied) {
-      throw new Error('Failed to apply workspace edit');
+  validateAll() {
+    for (const document of this.documents.all()) {
+      this.validate(document);
     }
   }
-  catch (err) {
-    connection.console.error(`Autofix error: ${err.message}\n${err.stack}`);
 
-    if (!disableErrorMessage) {
-      connection.window.showErrorMessage(`stylelint fix failed: ${err.message}`);
+  async executeAutofix(uri, diagnostic = null) {
+    const document = this.documents.get(uri);
+
+    if (!document) {
+      this.connection.console.error(`Document not found for URI: ${uri}`);
+
+      return;
+    }
+
+    try {
+      const documentPath = parseUri(document.uri).fsPath;
+      const options = {};
+
+      if (this.config) {
+        if (Object.keys(this.config).length > 0) {
+          options.config = this.config;
+        }
+      }
+
+      if (this.configOverrides) {
+        options.configOverrides = this.configOverrides;
+      }
+
+      if (documentPath) {
+        const {ignorePath, path: stylelintPath} = await this.resolveStylelintOptions(documentPath);
+
+        options.ignorePath = ignorePath;
+
+        if (this.useLocal) {
+          if (!stylelintPath) {
+            this.connection.console.error('Local stylelint not found.');
+            this.safeNotification('setStatusBarError');
+
+            return;
+          }
+          options.path = stylelintPath;
+        }
+      }
+
+      const originalText = document.getText();
+
+      const stylelintModule = await loadStylelint(options.path, {fallbackToBundled: true});
+      const {lint} = stylelintModule;
+
+      if (options.path) {
+        try {
+          const pkgContent = await fsPromises.readFile(join(options.path, 'package.json'), 'utf8');
+          JSON.parse(pkgContent);
+        }
+        catch (_e) {
+        // Ignore package.json read errors
+        }
+      }
+
+      const codeFilename = parseUri(document.uri).fsPath;
+      const tempFile = generateTempFilename(codeFilename);
+
+      let output;
+
+      try {
+        await fsPromises.writeFile(tempFile, originalText, 'utf8');
+
+        const fixOptions = {
+          ...options,
+          files: [tempFile],
+          fix: true,
+          quietDeprecationWarnings: true
+        };
+
+        delete fixOptions.path;
+        delete fixOptions.code;
+        delete fixOptions.codeFilename;
+
+        await lint(fixOptions);
+
+        output = await fsPromises.readFile(tempFile, 'utf8');
+      }
+      catch (err) {
+        connection.console.error(`Temp file strategy failed: ${err.message}`);
+        throw err;
+      }
+      finally {
+        try {
+          await fsPromises.unlink(tempFile);
+        }
+        catch {
+        // Temp file might not exist, ignore
+        }
+      }
+
+      if (!output) {
+        return;
+      }
+
+      if (output === originalText) {
+        return;
+      }
+
+      let edit;
+
+      if (diagnostic) {
+        const allEdits = generateTextEdits(document, originalText, output);
+
+        const targetEdits = allEdits.filter((edit) =>
+          isRangeOverlap(edit.range, diagnostic.range, DIAGNOSTIC_OVERLAP_LINE_THRESHOLD, DIAGNOSTIC_OVERLAP_CHAR_THRESHOLD)
+        );
+
+        edit = {
+          changes: {
+            [uri]: targetEdits
+          }
+        };
+      }
+
+      if (!edit) {
+        const lines = originalText.split('\n');
+        const lastLine = lines.length - 1;
+        const lastChar = lines[lastLine].length;
+
+        edit = {
+          changes: {
+            [uri]: [{
+              range: {
+                start: {line: 0, character: 0},
+                end: {line: lastLine, character: lastChar}
+              },
+              newText: output
+            }]
+          }
+        };
+      }
+
+      const applyResult = await this.connection.workspace.applyEdit(edit);
+
+      if (!applyResult.applied) {
+        throw new Error('Failed to apply workspace edit');
+      }
+    }
+    catch (err) {
+      this.handleStylelintError(err, 'autofix');
     }
   }
 }
+
+const connection = createConnection(ProposedFeatures.all);
+const documents = new TextDocuments();
+const server = new StylelintServer(connection, documents);
 
 connection.onCodeAction(async (params) => {
   const {textDocument, context} = params;
@@ -408,11 +525,11 @@ connection.onRequest('stylelint/executeAutofix', async (params) => {
     return;
   }
 
-  await executeAutofix(uri, diagnostic);
+  await server.executeAutofix(uri, diagnostic);
 });
 
 connection.onInitialize(() => {
-  validateAll();
+  server.validateAll();
 
   return {
     capabilities: {
@@ -423,34 +540,36 @@ connection.onInitialize(() => {
 });
 
 connection.onDidChangeConfiguration(({settings}) => {
-  config = settings.stylelint.config;
-  configOverrides = settings.stylelint.configOverrides;
-  autoFixOnSave = settings.stylelint.autoFixOnSave;
-  useLocal = settings.stylelint.useLocal;
-  disableErrorMessage = settings.stylelint.disableErrorMessage;
+  server.config = settings.stylelint.config;
+  server.configOverrides = settings.stylelint.configOverrides;
+  server.autoFixOnSave = settings.stylelint.autoFixOnSave;
+  server.useLocal = settings.stylelint.useLocal;
+  server.disableErrorMessage = settings.stylelint.disableErrorMessage;
 
-  validateAll();
+  server.validateAll();
 });
 
-connection.onDidChangeWatchedFiles(validateAll);
+connection.onDidChangeWatchedFiles(() => {
+  server.validateAll();
+});
 
 connection.onShutdown(() => {
-  isShuttingDown = true;
+  server.isShuttingDown = true;
 });
 
-documents.onDidChangeContent(({document}) => validate(document));
+documents.onDidChangeContent(({document}) => server.validate(document));
 
 documents.onDidClose(({document}) => {
   connection.sendDiagnostics({
     uri: document.uri,
     diagnostics: []
   });
-  documentDiagnostics.delete(document.uri);
+  server.documentDiagnostics.delete(document.uri);
 });
 
 documents.onDidSave(({document}) => {
-  if (autoFixOnSave) {
-    validate(document, true);
+  if (server.autoFixOnSave) {
+    server.validate(document, true);
   }
 });
 

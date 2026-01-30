@@ -1,6 +1,7 @@
 'use strict';
 
 const fs = require('fs');
+const fsPromises = fs.promises;
 const { join } = require('path');
 
 /**
@@ -19,14 +20,18 @@ async function loadStylelint(modulePath, { fallbackToBundled = false } = {}) {
 
   const pkgJsonPath = join(modulePath, 'package.json');
 
-  if (!fs.existsSync(pkgJsonPath)) {
+  try {
+    await fsPromises.access(pkgJsonPath);
+  }
+  catch {
     if (fallbackToBundled) {
       return require('stylelint');
     }
     throw new Error(`Cannot find package.json at ${pkgJsonPath}`);
   }
 
-  const pkgJson = JSON.parse(fs.readFileSync(pkgJsonPath, 'utf8'));
+  const pkgJsonContent = await fsPromises.readFile(pkgJsonPath, 'utf8');
+  const pkgJson = JSON.parse(pkgJsonContent);
   const majorVersion = parseInt(pkgJson.version.split('.')[0]);
 
   if (majorVersion >= 17) {

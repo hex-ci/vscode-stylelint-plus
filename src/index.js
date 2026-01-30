@@ -13,6 +13,8 @@ const {
 } = require('vscode');
 const {activationEvents} = require('../package.json');
 
+const DEBUG_PORT = 6004;
+
 const documentSelector = [];
 
 for (const activationEvent of activationEvents) {
@@ -22,7 +24,7 @@ for (const activationEvent of activationEvents) {
   }
 }
 
-const statusBarItem = window.createStatusBarItem(StatusBarAlignment.Right, 1);
+let statusBarItem;
 
 const versionInfo = {
   version: null,
@@ -30,37 +32,46 @@ const versionInfo = {
 };
 
 const setStatusBar = (status = 'ok') => {
-  if (versionInfo.version) {
-    const source = versionInfo.isLocal ? 'local' : 'bundled';
+  const isOk = status === 'ok';
+  const hasVersion = Boolean(versionInfo.version);
+  const source = versionInfo.isLocal ? 'local' : 'bundled';
 
-    statusBarItem.text = status === 'ok'
+  statusBarItem.text = isOk
+    ? hasVersion
       ? `Stylelint+ (${source} v${versionInfo.version})`
-      : `$(error) Stylelint+ (${source} v${versionInfo.version})`;
-    statusBarItem.tooltip = status === 'ok'
+      : 'Stylelint+'
+    : '$(error) Stylelint+';
+
+  statusBarItem.tooltip = isOk
+    ? hasVersion
       ? `Using ${source} stylelint ${versionInfo.version}`
-      : `Stylelint+ server stopped (${source} v${versionInfo.version})`;
-  }
-  else {
-    statusBarItem.text = status === 'ok' ? 'Stylelint+' : '$(error) Stylelint+';
-    statusBarItem.tooltip = status === 'ok' ? 'Stylelint+ server is running.' : 'Stylelint+ server stopped.';
-  }
+      : 'Stylelint+ server is running.'
+    : 'Stylelint+ server stopped.';
 
   statusBarItem.backgroundColor = ThemeColor;
 
   statusBarItem.show();
 };
 
+let client;
+
 exports.activate = ({subscriptions}) => {
+  statusBarItem = window.createStatusBarItem(StatusBarAlignment.Right, 1);
+  subscriptions.push(statusBarItem);
+
   const serverPath = path.join(__dirname, 'server.js');
 
-  const client = new LanguageClient('stylelint', {
+  const fileWatcher = workspace.createFileSystemWatcher('**/{.stylelintrc{,.js,.json,.yaml,.yml},stylelint.config.js,stylelint.config.mjs,stylelint.config.ts,.stylelintignore}');
+  subscriptions.push(fileWatcher);
+
+  client = new LanguageClient('stylelint', {
     run: {
       module: serverPath
     },
     debug: {
       module: serverPath,
       options: {
-        execArgv: ['--nolazy', '--inspect=6004']
+        execArgv: ['--nolazy', `--inspect=${DEBUG_PORT}`]
       }
     }
   }, {
@@ -68,9 +79,11 @@ exports.activate = ({subscriptions}) => {
     diagnosticCollectionName: 'stylelint',
     synchronize: {
       configurationSection: 'stylelint',
-      fileEvents: workspace.createFileSystemWatcher('**/{.stylelintrc{,.js,.json,.yaml,.yml},stylelint.config.js,stylelint.config.mjs,stylelint.config.ts,.stylelintignore}')
+      fileEvents: fileWatcher
     }
   });
+
+  subscriptions.push(client);
 
   function startClient() {
     client.start();
@@ -88,22 +101,27 @@ exports.activate = ({subscriptions}) => {
 
   setStatusBar();
 
-  client.onReady().then(() => {
-    client.onNotification('setStatusBarError', () => {
-      setStatusBar('error');
-    });
+  client.onReady()
+    .then(() => {
+      client.onNotification('setStatusBarError', () => {
+        setStatusBar('error');
+      });
 
-    client.onNotification('setStatusBarOk', () => {
-      setStatusBar('ok');
-    });
+      client.onNotification('setStatusBarOk', () => {
+        setStatusBar('ok');
+      });
 
-    client.onNotification('stylelint/versionDetected', ({version, isLocal}) => {
-      versionInfo.version = version;
-      versionInfo.isLocal = isLocal;
+      client.onNotification('stylelint/versionDetected', ({version, isLocal}) => {
+        versionInfo.version = version;
+        versionInfo.isLocal = isLocal;
 
-      setStatusBar('ok');
+        setStatusBar('ok');
+      });
+    })
+    .catch((err) => {
+      console.error('Language client failed to start:', err);
+      window.showErrorMessage('Stylelint+ extension failed to start');
     });
-  });
 
   subscriptions.push(
     commands.registerCommand('stylelint.executeAutofix', async (uriArg, diagnosticArg) => {
@@ -160,4 +178,10 @@ exports.activate = ({subscriptions}) => {
       }
     })
   );
+};
+
+exports.deactivate = async () => {
+  if (client) {
+    await client.stop();
+  }
 };

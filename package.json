@@ -126,8 +126,7 @@
     "prepackage": "npm run compile",
     "package": "vsce package",
     "pretest": "npm run compile",
-    "test": "node test/runTest.js",
-    "linux:test": "xvfb-run -a npm test",
+    "test": "node scripts/run-test.js",
     "test:unit": "mocha test/unit/*.test.js",
     "coverage": "nyc --reporter=text --reporter=lcov --reporter=cobertura --reporter=clover --reporter=json npm run test:unit"
   },
