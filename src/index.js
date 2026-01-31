@@ -26,6 +26,9 @@ for (const activationEvent of activationEvents) {
 
 let statusBarItem;
 
+// Export for testing
+module.exports.statusBarItem = () => statusBarItem;
+
 const versionInfo = {
   version: null,
   isLocal: false
