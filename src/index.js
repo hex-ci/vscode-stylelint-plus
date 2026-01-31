@@ -58,7 +58,7 @@ const setStatusBar = (status = 'ok') => {
 
 let client;
 
-exports.activate = ({subscriptions}) => {
+module.exports.activate = ({subscriptions}) => {
   statusBarItem = window.createStatusBarItem(StatusBarAlignment.Right, 1);
   subscriptions.push(statusBarItem);
 
@@ -183,7 +183,7 @@ exports.activate = ({subscriptions}) => {
   );
 };
 
-exports.deactivate = async () => {
+module.exports.deactivate = async () => {
   if (client) {
     await client.stop();
   }
