@@ -37,7 +37,7 @@ This extension supports **stylelint v15, v16, and v17** with automatic version d
 #### Default Behavior (Bundled Version)
 
 - **Bundled**: stylelint v15.x (CommonJS)
-- **Works with**: All Node.js versions >= 18.0.0
+- **Works with**: All Node.js versions >= 20.0.0
 - **Enabled when**: `stylelint.useLocal` is `false` (default)
 
 #### Local Version (User-Installed)

@@ -15,7 +15,7 @@
   },
   "engines": {
     "vscode": ">=1.35.0",
-    "node": ">=18.0.0"
+    "node": ">=20.0.0"
   },
   "categories": [
     "Linters"
@@ -142,7 +142,7 @@
     "@types/vscode": "~1.35.0",
     "@vscode/test-electron": "^2.5.2",
     "array-to-error": "^1.1.1",
-    "chai": "^4.5.0",
+    "chai": "^6.2.2",
     "diff": "^8.0.3",
     "esbuild": "^0.27.2",
     "eslint": "^9.39.2",
