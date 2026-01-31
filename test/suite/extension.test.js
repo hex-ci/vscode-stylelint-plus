@@ -3,7 +3,7 @@
 const { join } = require('path');
 const { assert } = require('chai');
 const { extensions, workspace, window } = require('vscode');
-const pWaitFor = require('p-wait-for');
+const pWaitFor = require('p-wait-for').default;
 
 describe('Extension Integration Tests', () => {
   it('should activate on CSS file', async () => {

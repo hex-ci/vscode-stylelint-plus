@@ -2,7 +2,7 @@
 
 const { assert } = require('chai');
 const { extensions, workspace, window, languages, ConfigurationTarget, commands, Range, Position } = require('vscode');
-const pWaitFor = require('p-wait-for');
+const pWaitFor = require('p-wait-for').default;
 const { join } = require('path');
 const fs = require('fs');
 
