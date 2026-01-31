@@ -1,7 +1,11 @@
 'use strict';
 
 const arrayToError = require('array-to-error');
-const {at, has, isPlainObject, map, stubString} = require('lodash');
+const at = require('lodash/at');
+const has = require('lodash/has');
+const isPlainObject = require('lodash/isPlainObject');
+const map = require('lodash/map');
+const stubString = require('lodash/stubString');
 const {TextDocument} = require('vscode-languageserver');
 const inspectWithKind = require('inspect-with-kind');
 const parseUri = require('vscode-uri').URI.parse;

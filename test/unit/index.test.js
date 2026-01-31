@@ -54,6 +54,28 @@ describe('Extension Activation', () => {
     };
   });
 
+  it('should expose statusBarItem for testing', () => {
+    const { activate, statusBarItem } = proxyquire('../../src/index', {
+      'vscode': vscodeMock,
+      'vscode-languageclient': languageClientMock,
+      'path': { join: (...args) => args.join('/') }
+    });
+
+    const context = {
+      subscriptions: [],
+      asAbsolutePath: (p) => `/abs/${p}`
+    };
+
+    // Before activation, it should be undefined
+    assert.isUndefined(statusBarItem());
+
+    activate(context);
+
+    // After activation, it should return the status bar item
+    assert.isDefined(statusBarItem());
+    assert.isTrue(vscodeMock.window.createStatusBarItem.called);
+  });
+
   it('should activate extension correctly', async () => {
     const { activate } = proxyquire('../../src/index', {
       'vscode': vscodeMock,
