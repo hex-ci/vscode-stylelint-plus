@@ -433,4 +433,18 @@ describe('Extension Activation', () => {
 
     assert.isTrue(clientInstanceMock.stop.called);
   });
+
+  it('should handle deactivate when client is not initialized', async () => {
+    const { deactivate } = proxyquire('../../src/index', {
+      'vscode': vscodeMock,
+      'vscode-languageclient': languageClientMock,
+      'path': { join: (...args) => args.join('/') }
+    });
+
+    // Call deactivate without calling activate first
+    await deactivate();
+
+    // Should not throw and client mock should not be touched
+    assert.isFalse(clientInstanceMock.stop.called);
+  });
 });

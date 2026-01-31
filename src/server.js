@@ -60,7 +60,7 @@ class StylelintServer {
     this.connection.sendNotification(method);
   }
 
-  handleStylelintError(err, context = 'validation') {
+  handleStylelintError(err, context) {
     this.connection.console.error(`stylelint ${context} error: ${err.stack}`);
     this.safeNotification('setStatusBarError');
 
@@ -300,11 +300,6 @@ class StylelintServer {
         version: this.detectedStylelintVersion,
         isLocal: this.isUsingLocal
       });
-
-      // Check if cancelled before calling stylelint
-      if (token.cancelled) {
-        return;
-      }
 
       const diagnostics = await stylelintVSCode(document, options);
 

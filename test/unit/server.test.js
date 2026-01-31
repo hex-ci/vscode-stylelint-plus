@@ -369,6 +369,32 @@ describe('Server', () => {
   });
 
   describe('Autofix', () => {
+    it('should handle local stylelint not found in executeAutofix', async () => {
+      const document = { uri: 'file:///project/test.css', getText: () => 'css content' };
+      documentsMock.get.returns(document);
+
+      // Reset and configure stubs to prevent infinite loops
+      findPkgDirStub.reset();
+      // For ignorePath resolution
+      findPkgDirStub.onFirstCall().returns('/project');
+      // For useLocal loop
+      findPkgDirStub.onSecondCall().returns('/project');
+      findPkgDirStub.returns(null);
+
+      // Configure access to reject for stylelint path (not found)
+      fsPromisesStub.access.reset();
+      fsPromisesStub.access.withArgs('/project/node_modules/stylelint').rejects(new Error('ENOENT'));
+      // Allow access for .stylelintignore
+      fsPromisesStub.access.withArgs(sinon.match('.stylelintignore')).resolves();
+
+      onDidChangeConfigurationHandler({ settings: { stylelint: { useLocal: true } } });
+
+      await onExecuteAutofixHandler({ uri: 'file:///project/test.css' });
+
+      assert.isTrue(connectionMock.console.error.calledWith('Local stylelint not found.'));
+      assert.isTrue(connectionMock.sendNotification.calledWith('setStatusBarError'));
+    });
+
     it('should execute autofix when requested', async () => {
       const document = { uri: 'file:///test.css', getText: () => 'css content' };
       documentsMock.get.returns(document);
@@ -887,6 +913,37 @@ describe('Server', () => {
   });
 
   describe('Validation Cancellation', () => {
+    it('should cancel validation after stylelintVSCode returns', async () => {
+      const document = { uri: 'file:///test.css', getText: () => 'css content' };
+
+      onDidChangeConfigurationHandler({ settings: { stylelint: {} } });
+
+      const resolves = [];
+      stylelintVSCodeStub.callsFake(() => new Promise(r => resolves.push(r)));
+
+      // 1. Start first validation
+      const validation1 = onDidChangeContentHandler({ document });
+
+      // 2. Wait a tick to ensure first validation gets to stylelintVSCode call
+      await new Promise(resolve => setImmediate(resolve));
+
+      // 3. Start second validation (cancels the first)
+      const validation2 = onDidChangeContentHandler({ document });
+
+      // 4. Wait a tick
+      await new Promise(resolve => setImmediate(resolve));
+
+      // 5. Resolve both promises
+      resolves.forEach(r => r([]));
+
+      await validation1;
+      await validation2;
+
+      // sendDiagnostics should be called only once (for the second validation)
+      // because the first one was cancelled after stylelintVSCode returned
+      assert.equal(connectionMock.sendDiagnostics.callCount, 1);
+    });
+
     it('should track validation tokens for documents', async () => {
       const document = { uri: 'file:///test.css', getText: () => 'css content' };
 
