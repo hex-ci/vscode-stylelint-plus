@@ -4,3 +4,4 @@ coverage
 dist/
 *.vsix
 .nyc_output/
+package-lock.json
