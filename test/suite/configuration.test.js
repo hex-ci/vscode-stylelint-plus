@@ -7,7 +7,12 @@ const { join } = require('path');
 const fs = require('fs');
 
 describe('Configuration Integration Tests', () => {
+  const tempDir = join(__dirname, 'tmp');
   let vscodeStylelint;
+
+  function ensureTempDir() {
+    fs.mkdirSync(tempDir, { recursive: true });
+  }
 
   before(async () => {
     vscodeStylelint = extensions.getExtension('hex-ci.stylelint-plus');
@@ -21,7 +26,8 @@ describe('Configuration Integration Tests', () => {
   });
 
   it('should clear diagnostics when disabled', async () => {
-    const testFileName = join(__dirname, `test-${Math.floor(Math.random() * 100000)}.css`);
+    ensureTempDir();
+    const testFileName = join(tempDir, `test-${Math.floor(Math.random() * 100000)}.css`);
 
     fs.writeFileSync(testFileName, 'body {');
 

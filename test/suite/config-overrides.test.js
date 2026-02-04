@@ -7,10 +7,16 @@ const { join } = require('path');
 const fs = require('fs');
 
 describe('Config Overrides Integration Tests', () => {
+  const tempDir = join(__dirname, 'tmp');
   const testFiles = [];
 
+  function ensureTempDir() {
+    fs.mkdirSync(tempDir, { recursive: true });
+  }
+
   function createTestFile(label, content) {
-    const testFileName = join(__dirname, `test-${label}-${Math.floor(Math.random() * 100000)}.css`);
+    ensureTempDir();
+    const testFileName = join(tempDir, `test-${label}-${Math.floor(Math.random() * 100000)}.css`);
     testFiles.push(testFileName);
     fs.writeFileSync(testFileName, content);
     return testFileName;
@@ -88,7 +94,8 @@ describe('Config Overrides Integration Tests', () => {
   });
 
   it('should propagate config changes to server via LSP', async () => {
-    const testFileName = join(__dirname, `test-${Math.floor(Math.random() * 100000)}.css`);
+    ensureTempDir();
+    const testFileName = join(tempDir, `test-${Math.floor(Math.random() * 100000)}.css`);
     testFiles.push(testFileName);
 
     fs.writeFileSync(testFileName, 'a {}');

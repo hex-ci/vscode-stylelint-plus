@@ -7,23 +7,33 @@ const { join } = require('path');
 const fs = require('fs');
 
 describe('Ignore Integration Tests', () => {
+  const tempDir = join(__dirname, 'tmp');
+
+  function ensureTempDir() {
+    fs.mkdirSync(tempDir, { recursive: true });
+  }
+
   it('should not report errors for ignored files', async () => {
-    fs.writeFileSync(join(__dirname, '.stylelintignore'), 'ignore.css\n');
-    fs.writeFileSync(join(__dirname, 'ignore.css'), '.test1 { color: #fff; }\n.test2 { color: #000; }\n');
+    ensureTempDir();
+    fs.writeFileSync(join(tempDir, '.stylelintignore'), 'ignore.css\n');
+    fs.writeFileSync(join(tempDir, 'ignore.css'), '.test1 { color: #fff; }\n.test2 { color: #000; }\n');
 
     afterEach(function () {
-      if (fs.existsSync(join(__dirname, '.stylelintignore'))) {
-        fs.unlinkSync(join(__dirname, '.stylelintignore'));
+      const ignoreFile = join(tempDir, '.stylelintignore');
+      const ignoredCssFile = join(tempDir, 'ignore.css');
+
+      if (fs.existsSync(ignoreFile)) {
+        fs.unlinkSync(ignoreFile);
       }
 
-      if (fs.existsSync(join(__dirname, 'ignore.css'))) {
-        fs.unlinkSync(join(__dirname, 'ignore.css'));
+      if (fs.existsSync(ignoredCssFile)) {
+        fs.unlinkSync(ignoredCssFile);
       }
     });
 
     const vscodeStylelint = extensions.getExtension('hex-ci.stylelint-plus');
 
-    const jsDocument = await workspace.openTextDocument(join(__dirname, 'ignore.css'));
+    const jsDocument = await workspace.openTextDocument(join(tempDir, 'ignore.css'));
 
     await window.showTextDocument(jsDocument);
 

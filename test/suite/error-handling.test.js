@@ -15,10 +15,16 @@ async function waitForStylelintDiagnostics(document, timeout = 10000) {
 }
 
 describe('Error Handling Integration Tests', () => {
+  const tempDir = join(__dirname, 'tmp');
   const testFiles = [];
 
+  function ensureTempDir() {
+    fs.mkdirSync(tempDir, { recursive: true });
+  }
+
   function createTestFile(label, content) {
-    const testFileName = join(__dirname, `test-${label}-${Math.floor(Math.random() * 100000)}.css`);
+    ensureTempDir();
+    const testFileName = join(tempDir, `test-${label}-${Math.floor(Math.random() * 100000)}.css`);
     testFiles.push(testFileName);
     fs.writeFileSync(testFileName, content);
     return testFileName;

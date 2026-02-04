@@ -7,7 +7,12 @@ const { join } = require('path');
 const fs = require('fs');
 
 describe('Code Actions Integration Tests', () => {
+  const tempDir = join(__dirname, 'tmp');
   const testFiles = [];
+
+  function ensureTempDir() {
+    fs.mkdirSync(tempDir, { recursive: true });
+  }
 
   before(async () => {
     const vscodeStylelint = extensions.getExtension('hex-ci.stylelint-plus');
@@ -32,7 +37,8 @@ describe('Code Actions Integration Tests', () => {
       }
     }, ConfigurationTarget.Global);
 
-    const testFileName = join(__dirname, `test-${Math.floor(Math.random() * 100000)}.css`);
+    ensureTempDir();
+    const testFileName = join(tempDir, `test-${Math.floor(Math.random() * 100000)}.css`);
     testFiles.push(testFileName);
 
     fs.writeFileSync(testFileName, 'a { top: 0px; }');

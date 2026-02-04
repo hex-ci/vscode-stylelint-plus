@@ -7,7 +7,12 @@ const { join } = require('path');
 const fs = require('fs');
 
 describe('Languages Integration Tests', () => {
+  const tempDir = join(__dirname, 'tmp');
   const testFiles = [];
+
+  function ensureTempDir() {
+    fs.mkdirSync(tempDir, { recursive: true });
+  }
 
   function trackTestFile(filePath) {
     testFiles.push(filePath);
@@ -92,8 +97,9 @@ describe('Languages Integration Tests', () => {
     const vscodeStylelint = extensions.getExtension('hex-ci.stylelint-plus');
 
     for (const testCase of getActivationCases()) {
+      ensureTempDir();
       const testFileName = trackTestFile(join(
-        __dirname,
+        tempDir,
         `test-${testCase.label.toLowerCase()}-${Math.floor(Math.random() * 100000)}.${testCase.extension}`
       ));
 

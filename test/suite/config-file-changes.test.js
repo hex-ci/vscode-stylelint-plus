@@ -7,8 +7,13 @@ const { join } = require('path');
 const fs = require('fs');
 
 describe('Config File Changes Integration Tests', () => {
+  const tempDir = join(__dirname, 'tmp');
   const testFiles = [];
   const configFiles = [];
+
+  function ensureTempDir() {
+    fs.mkdirSync(tempDir, { recursive: true });
+  }
 
   before(async () => {
     const vscodeStylelint = extensions.getExtension('hex-ci.stylelint-plus');
@@ -37,7 +42,8 @@ describe('Config File Changes Integration Tests', () => {
   it('should handle config file creation and validate new documents', async () => {
     const vscodeStylelint = extensions.getExtension('hex-ci.stylelint-plus');
 
-    const activationFileName = join(__dirname, `test-${Math.floor(Math.random() * 100000)}.css`);
+    ensureTempDir();
+    const activationFileName = join(tempDir, `test-${Math.floor(Math.random() * 100000)}.css`);
     testFiles.push(activationFileName);
 
     fs.writeFileSync(activationFileName, 'a { color: red; }');
@@ -49,7 +55,8 @@ describe('Config File Changes Integration Tests', () => {
 
     assert.isTrue(vscodeStylelint.isActive, 'Extension should be active');
 
-    const configFileName = join(__dirname, '.stylelintrc.json');
+    ensureTempDir();
+    const configFileName = join(tempDir, '.stylelintrc.json');
     configFiles.push(configFileName);
 
     fs.writeFileSync(configFileName, JSON.stringify({
@@ -63,7 +70,8 @@ describe('Config File Changes Integration Tests', () => {
     assert.isTrue(vscodeStylelint.isActive,
       'Extension should handle presence of .stylelintrc.json file');
 
-    const testFileName = join(__dirname, `test-${Math.floor(Math.random() * 100000)}.css`);
+    ensureTempDir();
+    const testFileName = join(tempDir, `test-${Math.floor(Math.random() * 100000)}.css`);
     testFiles.push(testFileName);
 
     fs.writeFileSync(testFileName, 'a {}');

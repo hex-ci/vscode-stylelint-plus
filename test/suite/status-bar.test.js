@@ -7,7 +7,12 @@ const { join } = require('path');
 const fs = require('fs');
 
 describe('Status Bar Integration Tests', () => {
+  const tempDir = join(__dirname, 'tmp');
   const testFiles = [];
+
+  function ensureTempDir() {
+    fs.mkdirSync(tempDir, { recursive: true });
+  }
 
   afterEach(async function () {
     for (const testFile of testFiles) {
@@ -24,7 +29,8 @@ describe('Status Bar Integration Tests', () => {
   it('should activate and handle status bar states', async () => {
     const vscodeStylelint = extensions.getExtension('hex-ci.stylelint-plus');
 
-    const testFileName = join(__dirname, `test-${Math.floor(Math.random() * 100000)}.css`);
+    ensureTempDir();
+    const testFileName = join(tempDir, `test-${Math.floor(Math.random() * 100000)}.css`);
     testFiles.push(testFileName);
 
     fs.writeFileSync(testFileName, 'a { color: red; }');

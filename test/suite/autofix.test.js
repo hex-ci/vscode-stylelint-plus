@@ -17,7 +17,12 @@ const fs = require('fs');
 
 describe('Autofix Integration Tests', () => {
   let vscodeStylelint;
+  const tempDir = join(__dirname, 'tmp');
   const testFiles = [];
+
+  function ensureTempDir() {
+    fs.mkdirSync(tempDir, { recursive: true });
+  }
 
   function trackTestFile(filePath) {
     testFiles.push(filePath);
@@ -51,7 +56,8 @@ describe('Autofix Integration Tests', () => {
       }
     }, ConfigurationTarget.Global);
 
-    const validationFileName = trackTestFile(join(__dirname, `test-${Math.floor(Math.random() * 100000)}.css`));
+    ensureTempDir();
+    const validationFileName = trackTestFile(join(tempDir, `test-${Math.floor(Math.random() * 100000)}.css`));
     fs.writeFileSync(validationFileName, 'a {}');
 
     const validationDocument = await workspace.openTextDocument(validationFileName);
@@ -75,7 +81,8 @@ describe('Autofix Integration Tests', () => {
       }
     }, ConfigurationTarget.Global);
 
-    const autofixFileName = trackTestFile(join(__dirname, `test-${Math.floor(Math.random() * 100000)}.css`));
+    ensureTempDir();
+    const autofixFileName = trackTestFile(join(tempDir, `test-${Math.floor(Math.random() * 100000)}.css`));
     fs.writeFileSync(autofixFileName, 'a { top: 0px; }');
 
     const autofixDocument = await workspace.openTextDocument(autofixFileName);
@@ -103,7 +110,8 @@ describe('Autofix Integration Tests', () => {
       }
     }, ConfigurationTarget.Global);
 
-    const autoSaveFileName = trackTestFile(join(__dirname, `test-${Math.floor(Math.random() * 100000)}.css`));
+    ensureTempDir();
+    const autoSaveFileName = trackTestFile(join(tempDir, `test-${Math.floor(Math.random() * 100000)}.css`));
     fs.writeFileSync(autoSaveFileName, 'a { top: 0px; }');
 
     const autoSaveDocument = await workspace.openTextDocument(autoSaveFileName);

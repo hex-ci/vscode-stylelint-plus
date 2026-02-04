@@ -15,7 +15,12 @@ async function waitForStylelintDiagnostics(document, timeout = 10000) {
 }
 
 describe('Document Lifecycle Integration Tests', () => {
+  const tempDir = join(__dirname, 'tmp');
   const testFiles = [];
+
+  function ensureTempDir() {
+    fs.mkdirSync(tempDir, { recursive: true });
+  }
 
   before(async () => {
     const vscodeStylelint = extensions.getExtension('hex-ci.stylelint-plus');
@@ -40,7 +45,8 @@ describe('Document Lifecycle Integration Tests', () => {
       }
     }, ConfigurationTarget.Global);
 
-    const openFileName = join(__dirname, `test-open-${Math.floor(Math.random() * 100000)}.css`);
+    ensureTempDir();
+    const openFileName = join(tempDir, `test-open-${Math.floor(Math.random() * 100000)}.css`);
     testFiles.push(openFileName);
 
     fs.writeFileSync(openFileName, 'a {}');
@@ -54,7 +60,8 @@ describe('Document Lifecycle Integration Tests', () => {
     assert.isNotEmpty(stylelintDiagnostics, 'Should validate on document open');
     assert.include(stylelintDiagnostics[0].message, 'block-no-empty');
 
-    const changeFileName = join(__dirname, `test-change-${Math.floor(Math.random() * 100000)}.css`);
+    ensureTempDir();
+    const changeFileName = join(tempDir, `test-change-${Math.floor(Math.random() * 100000)}.css`);
     testFiles.push(changeFileName);
 
     fs.writeFileSync(changeFileName, 'a { color: red; }');
@@ -88,7 +95,8 @@ describe('Document Lifecycle Integration Tests', () => {
       }
     }, ConfigurationTarget.Global);
 
-    const closeFileName = join(__dirname, `test-close-${Math.floor(Math.random() * 100000)}.css`);
+    ensureTempDir();
+    const closeFileName = join(tempDir, `test-close-${Math.floor(Math.random() * 100000)}.css`);
     testFiles.push(closeFileName);
 
     fs.writeFileSync(closeFileName, 'a {}');
@@ -108,7 +116,8 @@ describe('Document Lifecycle Integration Tests', () => {
     assert.isTrue(extensions.getExtension('hex-ci.stylelint-plus').isActive,
       'Extension should remain active after document close');
 
-    const rapidFileName = join(__dirname, `test-rapid-${Math.floor(Math.random() * 100000)}.css`);
+    ensureTempDir();
+    const rapidFileName = join(tempDir, `test-rapid-${Math.floor(Math.random() * 100000)}.css`);
     testFiles.push(rapidFileName);
 
     fs.writeFileSync(rapidFileName, 'a { color: red; }');
