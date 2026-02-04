@@ -18,11 +18,12 @@ describe('Constants', () => {
     assert.isNumber(constants.TEMP_FILE_MAX_RETRIES);
     assert.isNumber(constants.TEMP_FILE_RETRY_DELAY_MS);
     assert.isNumber(constants.BATCH_DIAGNOSTICS_INTERVAL_MS);
+    assert.isNumber(constants.MAX_FILE_SIZE);
 
     assert.strictEqual(constants.STYLELINT_ERROR_CODE_CONFIG, 78);
     assert.strictEqual(constants.DIAGNOSTIC_OVERLAP_LINE_THRESHOLD, 1);
     assert.strictEqual(constants.DIAGNOSTIC_OVERLAP_CHAR_THRESHOLD, 2);
-    assert.strictEqual(constants.VERSION_CACHE_TTL, 5000);
+    assert.strictEqual(constants.VERSION_CACHE_TTL, 300000);
     assert.strictEqual(constants.WORKSPACE_CACHE_TTL, 1000);
     assert.strictEqual(constants.VALIDATION_DEBOUNCE_MS, 150);
     assert.strictEqual(constants.MAX_CONCURRENT_VALIDATIONS, 5);
@@ -32,5 +33,6 @@ describe('Constants', () => {
     assert.strictEqual(constants.TEMP_FILE_MAX_RETRIES, 3);
     assert.strictEqual(constants.TEMP_FILE_RETRY_DELAY_MS, 100);
     assert.strictEqual(constants.BATCH_DIAGNOSTICS_INTERVAL_MS, 100);
+    assert.strictEqual(constants.MAX_FILE_SIZE, 1024 * 1024 * 5);
   });
 });

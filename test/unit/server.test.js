@@ -224,7 +224,6 @@ describe('Server', () => {
       assert.isTrue(server.isShuttingDown);
       assert.isTrue(connectionMock.console.error.calledWith(sinon.match('Uncaught Exception')));
       assert.isTrue(disposeSpy.called);
-      assert.isTrue(processExitStub.calledWith(1));
 
       processExitStub.restore();
     });
@@ -457,6 +456,9 @@ describe('Server', () => {
       const server = new StylelintServer(connectionMock, documentsMock);
       const document = { uri: 'file:///test.css', getText: () => 'css' };
 
+      // Mock documents.get to return the document (simulating fresh fetch)
+      documentsMock.get = sinon.stub().returns(document);
+
       // Mock resolveStylelintOptions and stylelintVSCode
       server.resolveStylelintOptions = sinon.stub().resolves({ ignorePath: '/test/.stylelintignore' });
       stylelintVSCodeStub.resolves({ diagnostics: [], ruleMetadata: {} });
@@ -471,6 +473,22 @@ describe('Server', () => {
       // After execution, debouncer should be removed and validate called
       assert.isFalse(server.validateDebouncers.has('file:///test.css'));
       assert.isTrue(stylelintVSCodeStub.called);
+    });
+
+    it('should not validate if document is closed before timeout', async () => {
+      clock = sinon.useFakeTimers();
+      const server = new StylelintServer(connectionMock, documentsMock);
+      const document = { uri: 'file:///test.css', getText: () => 'css' };
+
+      // Mock documents.get to return null (document closed)
+      documentsMock.get = sinon.stub().returns(null);
+
+      server.validateDebounced(document);
+
+      await clock.tickAsync(200);
+
+      // validate should not be called since document is gone
+      assert.isFalse(stylelintVSCodeStub.called);
     });
   });
 
@@ -824,6 +842,22 @@ describe('Server', () => {
 
       assert.isFalse(result);
       assert.equal(fsPromisesStub.unlink.callCount, 3);
+      assert.include(server.failedTempFiles, '/tmp/test.css');
+    });
+  });
+
+  describe('retryFailedTempFiles', () => {
+    it('should retry and handle failures silently', async () => {
+      const server = new StylelintServer(connectionMock, documentsMock);
+      server.failedTempFiles = ['/tmp/file1.css', '/tmp/file2.css'];
+
+      fsPromisesStub.unlink.onFirstCall().resolves();
+      fsPromisesStub.unlink.onSecondCall().rejects(new Error('Still locked'));
+
+      await server.retryFailedTempFiles();
+
+      assert.equal(fsPromisesStub.unlink.callCount, 2);
+      assert.deepEqual(server.failedTempFiles, []);
     });
   });
 

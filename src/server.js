@@ -73,6 +73,9 @@ class StylelintServer {
     // Debounced validation timers
     this.validateDebouncers = new Map();
 
+    // Failed temp file cleanup list
+    this.failedTempFiles = [];
+
     // Setup global error handlers
     this.setupErrorHandlers();
   }
@@ -90,7 +93,6 @@ class StylelintServer {
       this.connection.console.error(`Uncaught Exception: ${error.stack}`);
       this.isShuttingDown = true;
       this.dispose();
-      process.exit(1);
     });
   }
 
@@ -277,7 +279,13 @@ class StylelintServer {
         // File doesn't exist, continue to parent
       }
 
-      dir = parse(dir).dir;
+      const parentDir = parse(dir).dir;
+
+      if (parentDir === dir) {
+        break;
+      }
+
+      dir = parentDir;
     }
 
     const result = {ignorePath};
@@ -332,7 +340,12 @@ class StylelintServer {
     // Set new debounce timer
     const timeoutId = setTimeout(() => {
       this.validateDebouncers.delete(uri);
-      this.validate(document, isAutoFixOnSave);
+
+      const currentDoc = this.documents.get(uri);
+
+      if (currentDoc) {
+        this.validate(currentDoc, isAutoFixOnSave);
+      }
     }, VALIDATION_DEBOUNCE_MS);
 
     this.validateDebouncers.set(uri, timeoutId);
@@ -474,6 +487,7 @@ class StylelintServer {
       catch (err) {
         if (i === maxRetries - 1) {
           this.connection.console.error(`Failed to delete temp file ${filePath} after ${maxRetries} attempts: ${err.message}`);
+          this.failedTempFiles.push(filePath);
           return false;
         }
         // Wait before retry with exponential backoff
@@ -481,6 +495,22 @@ class StylelintServer {
       }
     }
 
+  }
+
+  /**
+   * Retry cleanup of previously failed temp files
+   * @private
+   */
+  async retryFailedTempFiles() {
+    const files = this.failedTempFiles.splice(0);
+    for (const file of files) {
+      try {
+        await fsPromises.unlink(file);
+      }
+      catch {
+        // Still failed, will be cleaned up on next dispose
+      }
+    }
   }
 
   /**
@@ -648,6 +678,9 @@ class StylelintServer {
     this.versionCache.clear();
     this.workspaceCache = null;
     this.workspaceCacheTime = 0;
+
+    // Final cleanup of failed temp files
+    this.retryFailedTempFiles();
   }
 }
 
@@ -776,6 +809,7 @@ function startServer() {
   // Document save handler
   documents.onDidSave(({document}) => {
     if (server.autoFixOnSave) {
+      server.clearDebouncer(document.uri);
       server.validate(document, true);
     }
   });

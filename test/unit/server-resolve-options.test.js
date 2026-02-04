@@ -220,6 +220,26 @@ describe('Server resolveStylelintOptions', () => {
 
       assert.equal(result.ignorePath, '/workspace/.stylelintignore');
     });
+
+    it('should break loop when reaching root directory', async () => {
+      const server = new StylelintServer(connectionMock, documentsMock);
+
+      // Workspace is in a different location, so stopPath won't match document path
+      connectionMock.workspace.getWorkspaceFolders.resolves([
+        {uri: 'file:///other/workspace'}
+      ]);
+
+      // findPkgDir returns null, so stopPath becomes root
+      findPkgDirStub.returns(null);
+
+      // All access calls fail - will traverse up to root
+      fsPromisesStub.access.rejects(new Error('Not found'));
+
+      const result = await server.resolveStylelintOptions('file:///some/deep/nested/path/test.css');
+
+      // Should complete without infinite loop, ignorePath defaults to root
+      assert.isDefined(result.ignorePath);
+    });
   });
 
   afterEach(() => {

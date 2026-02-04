@@ -11,6 +11,7 @@ const inspectWithKind = require('inspect-with-kind');
 const parseUri = require('vscode-uri').URI.parse;
 const stylelintWarningToVscodeDiagnostic = require('./diagnostic');
 const loadStylelint = require('./load-stylelint');
+const { MAX_FILE_SIZE } = require('./constants');
 
 // https://github.com/stylelint/stylelint/blob/10.0.1/lib/getPostcssResult.js#L69-L81
 const SUPPORTED_SYNTAXES = new Set([
@@ -81,6 +82,13 @@ module.exports = async function stylelintVSCode(textDocument, options = {}) {
     }.`);
   }
 
+  // Skip validation for files exceeding size limit
+  const text = textDocument.getText();
+
+  if (text.length > MAX_FILE_SIZE) {
+    return { diagnostics: [], ruleMetadata: {} };
+  }
+
   const priorOptions = {
     formatter: stubString
   };
@@ -93,12 +101,12 @@ module.exports = async function stylelintVSCode(textDocument, options = {}) {
       priorOptions.allowEmptyInput = true;
     }
     else {
-      priorOptions.code = textDocument.getText();
+      priorOptions.code = text;
       priorOptions.codeFilename = codeFilename;
     }
   }
   else {
-    priorOptions.code = textDocument.getText();
+    priorOptions.code = text;
 
     if (!has(options, 'syntax')) {
       if (SUPPORTED_SYNTAXES.has(textDocument.languageId)) {

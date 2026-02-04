@@ -14,7 +14,7 @@ module.exports = {
   DIAGNOSTIC_OVERLAP_CHAR_THRESHOLD: 2,
 
   // Cache TTLs (in milliseconds)
-  VERSION_CACHE_TTL: 5000,
+  VERSION_CACHE_TTL: 300000, // 5 minutes
   WORKSPACE_CACHE_TTL: 1000,
 
   // Validation debounce time (milliseconds)
@@ -37,5 +37,8 @@ module.exports = {
   TEMP_FILE_RETRY_DELAY_MS: 100,
 
   // Batch diagnostics interval (milliseconds)
-  BATCH_DIAGNOSTICS_INTERVAL_MS: 100
+  BATCH_DIAGNOSTICS_INTERVAL_MS: 100,
+
+  // Maximum file size for validation (5MB)
+  MAX_FILE_SIZE: 1024 * 1024 * 5
 };

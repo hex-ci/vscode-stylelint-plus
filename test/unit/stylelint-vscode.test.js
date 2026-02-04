@@ -214,4 +214,14 @@ describe('stylelintVSCode', () => {
       assert.equal(err.message, 'Other error');
     }
   });
+
+  it('should skip validation for files exceeding size limit', async () => {
+    const largeContent = 'a'.repeat(1024 * 1024 * 5 + 1);
+    const document = TextDocument.create('file:///large.css', 'css', 1, largeContent);
+
+    const result = await stylelintVSCode(document);
+
+    assert.deepEqual(result, { diagnostics: [], ruleMetadata: {} });
+    assert.isFalse(lintStub.called);
+  });
 });

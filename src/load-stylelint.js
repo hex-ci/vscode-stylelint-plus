@@ -3,6 +3,7 @@
 const fs = require('fs');
 const fsPromises = fs.promises;
 const { join } = require('path');
+const { pathToFileURL } = require('url');
 
 /**
  * Load stylelint module from specified path or bundled version.
@@ -60,7 +61,7 @@ async function loadStylelint(modulePath, { fallbackToBundled = false } = {}) {
       entryPoint = join(modulePath, pkgJson.module || pkgJson.main || 'index.js');
     }
 
-    const fileUrl = `file://${entryPoint}`;
+    const fileUrl = pathToFileURL(entryPoint).href;
     const esmModule = await import(fileUrl);
 
     return esmModule.default || esmModule;
