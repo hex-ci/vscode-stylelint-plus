@@ -6,8 +6,23 @@ const pWaitFor = require('p-wait-for').default;
 const { join } = require('path');
 const fs = require('fs');
 
+function getStylelintDiagnostics(document) {
+  return languages.getDiagnostics(document.uri).filter(d => d.source === 'stylelint');
+}
+
+async function waitForStylelintDiagnostics(document, timeout = 10000) {
+  await pWaitFor(() => getStylelintDiagnostics(document).length > 0, { timeout });
+}
+
 describe('Error Handling Integration Tests', () => {
   const testFiles = [];
+
+  function createTestFile(label, content) {
+    const testFileName = join(__dirname, `test-${label}-${Math.floor(Math.random() * 100000)}.css`);
+    testFiles.push(testFileName);
+    fs.writeFileSync(testFileName, content);
+    return testFileName;
+  }
 
   before(async () => {
     const vscodeStylelint = extensions.getExtension('hex-ci.stylelint-plus');
@@ -15,7 +30,6 @@ describe('Error Handling Integration Tests', () => {
   });
 
   afterEach(async function () {
-    // Clean up test files
     for (const testFile of testFiles) {
       if (fs.existsSync(testFile)) {
         fs.unlinkSync(testFile);
@@ -23,138 +37,89 @@ describe('Error Handling Integration Tests', () => {
     }
     testFiles.length = 0;
 
-    // Reset configuration
     await workspace.getConfiguration('stylelint').update('config', undefined, ConfigurationTarget.Global);
     await workspace.getConfiguration('stylelint').update('disableErrorMessage', undefined, ConfigurationTarget.Global);
   });
 
-  it('should handle invalid config gracefully without crashing', async () => {
-    // Configure an invalid rule syntax that will cause stylelint to error
-    await workspace.getConfiguration('stylelint').update('config', {
-      rules: 'invalid-rule-syntax'
-    }, ConfigurationTarget.Global);
-
-    const testFileName = join(__dirname, `test-${Math.floor(Math.random() * 100000)}.css`);
-    testFiles.push(testFileName);
-
-    fs.writeFileSync(testFileName, 'a { color: red; }');
-
-    const document = await workspace.openTextDocument(testFileName);
-    await window.showTextDocument(document);
-
-    // Wait for validation attempt
-    await new Promise(resolve => setTimeout(resolve, 3000));
-
-    // Extension should remain active even with invalid config
-    const vscodeStylelint = extensions.getExtension('hex-ci.stylelint-plus');
-    assert.isTrue(vscodeStylelint.isActive, 'Extension should remain active with invalid config');
-  });
-
-  it('should handle unknown rules without crashing', async () => {
-    // Configure an unknown rule - this tests that extension handles stylelint errors gracefully
-    await workspace.getConfiguration('stylelint').update('config', {
-      rules: {
-        'unknown-rule-that-does-not-exist': true
+  it('should remain active for common error scenarios', async () => {
+    const scenarios = [
+      {
+        label: 'invalid-config',
+        config: {
+          rules: 'invalid-rule-syntax'
+        },
+        disableErrorMessage: undefined,
+        content: 'a { color: red; }',
+        waitMs: 3000
+      },
+      {
+        label: 'unknown-rule',
+        config: {
+          rules: {
+            'unknown-rule-that-does-not-exist': true
+          }
+        },
+        disableErrorMessage: undefined,
+        content: 'a { color: red; }',
+        waitMs: 3000
+      },
+      {
+        label: 'empty-file',
+        config: undefined,
+        disableErrorMessage: undefined,
+        content: '',
+        waitMs: 2000
+      },
+      {
+        label: 'disable-error-message',
+        config: {
+          rules: 'invalid-syntax'
+        },
+        disableErrorMessage: true,
+        content: 'a { color: red; }',
+        waitMs: 3000
       }
-    }, ConfigurationTarget.Global);
+    ];
 
-    const testFileName = join(__dirname, `test-${Math.floor(Math.random() * 100000)}.css`);
-    testFiles.push(testFileName);
+    for (const scenario of scenarios) {
+      await workspace.getConfiguration('stylelint').update('config', scenario.config, ConfigurationTarget.Global);
+      await workspace.getConfiguration('stylelint').update('disableErrorMessage', scenario.disableErrorMessage, ConfigurationTarget.Global);
 
-    fs.writeFileSync(testFileName, 'a { color: red; }');
+      const testFileName = createTestFile(scenario.label, scenario.content);
+      const document = await workspace.openTextDocument(testFileName);
+      await window.showTextDocument(document);
 
-    const document = await workspace.openTextDocument(testFileName);
-    await window.showTextDocument(document);
+      await new Promise(resolve => setTimeout(resolve, scenario.waitMs));
 
-    // Wait for validation attempt
-    await new Promise(resolve => setTimeout(resolve, 3000));
-
-    // Extension should remain active
-    const vscodeStylelint = extensions.getExtension('hex-ci.stylelint-plus');
-    assert.isTrue(vscodeStylelint.isActive, 'Extension should remain active with unknown rule');
-  });
-
-  it('should handle empty CSS files without crashing', async () => {
-    const testFileName = join(__dirname, `test-${Math.floor(Math.random() * 100000)}.css`);
-    testFiles.push(testFileName);
-
-    // Create empty CSS file
-    fs.writeFileSync(testFileName, '');
-
-    const document = await workspace.openTextDocument(testFileName);
-    await window.showTextDocument(document);
-
-    // Wait a moment for validation
-    await new Promise(resolve => setTimeout(resolve, 2000));
-
-    // Extension should remain active
-    const vscodeStylelint = extensions.getExtension('hex-ci.stylelint-plus');
-    assert.isTrue(vscodeStylelint.isActive, 'Extension should remain active with empty file');
+      const vscodeStylelint = extensions.getExtension('hex-ci.stylelint-plus');
+      assert.isTrue(vscodeStylelint.isActive, `Extension should remain active for ${scenario.label}`);
+    }
   });
 
   it('should recover after config error is fixed', async () => {
-    // First, set invalid config
     await workspace.getConfiguration('stylelint').update('config', {
       rules: 'invalid'
     }, ConfigurationTarget.Global);
 
-    const testFileName = join(__dirname, `test-${Math.floor(Math.random() * 100000)}.css`);
-    testFiles.push(testFileName);
-
-    fs.writeFileSync(testFileName, 'a {}');
+    const testFileName = createTestFile('recover', 'a {}');
 
     const document = await workspace.openTextDocument(testFileName);
     await window.showTextDocument(document);
 
-    // Wait with invalid config
     await new Promise(resolve => setTimeout(resolve, 2000));
 
     assert.isTrue(extensions.getExtension('hex-ci.stylelint-plus').isActive,
       'Extension should be active with invalid config');
 
-    // Now fix the config
     await workspace.getConfiguration('stylelint').update('config', {
       rules: {
         'block-no-empty': true
       }
     }, ConfigurationTarget.Global);
 
-    // Wait for validation with valid config
-    await pWaitFor(() => {
-      const diagnostics = languages.getDiagnostics(document.uri);
-      const stylelintDiagnostics = diagnostics.filter(d => d.source === 'stylelint');
-      return stylelintDiagnostics.length > 0;
-    }, { timeout: 10000 });
+    await waitForStylelintDiagnostics(document);
 
-    const allDiagnostics = languages.getDiagnostics(document.uri);
-    const stylelintDiagnostics = allDiagnostics.filter(d => d.source === 'stylelint');
-
-    // Extension should recover and provide diagnostics
+    const stylelintDiagnostics = getStylelintDiagnostics(document);
     assert.isNotEmpty(stylelintDiagnostics, 'Extension should recover and provide diagnostics after config fix');
-  });
-
-  it('should handle disableErrorMessage configuration', async () => {
-    // Enable disableErrorMessage to suppress error notifications
-    await workspace.getConfiguration('stylelint').update('disableErrorMessage', true, ConfigurationTarget.Global);
-
-    // Set invalid config to trigger an error
-    await workspace.getConfiguration('stylelint').update('config', {
-      rules: 'invalid-syntax'
-    }, ConfigurationTarget.Global);
-
-    const testFileName = join(__dirname, `test-${Math.floor(Math.random() * 100000)}.css`);
-    testFiles.push(testFileName);
-
-    fs.writeFileSync(testFileName, 'a { color: red; }');
-
-    const document = await workspace.openTextDocument(testFileName);
-    await window.showTextDocument(document);
-
-    // Wait for validation attempt
-    await new Promise(resolve => setTimeout(resolve, 3000));
-
-    // Extension should remain active even with disableErrorMessage enabled
-    assert.isTrue(extensions.getExtension('hex-ci.stylelint-plus').isActive,
-      'Extension should handle disableErrorMessage config');
   });
 });

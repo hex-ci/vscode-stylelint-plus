@@ -17,6 +17,12 @@ const fs = require('fs');
 
 describe('Autofix Integration Tests', () => {
   let vscodeStylelint;
+  const testFiles = [];
+
+  function trackTestFile(filePath) {
+    testFiles.push(filePath);
+    return filePath;
+  }
 
   before(async () => {
     vscodeStylelint = extensions.getExtension('hex-ci.stylelint-plus');
@@ -24,114 +30,87 @@ describe('Autofix Integration Tests', () => {
   });
 
   afterEach(async () => {
-    // Reset configuration
+    for (const testFile of testFiles) {
+      if (fs.existsSync(testFile)) {
+        fs.unlinkSync(testFile);
+      }
+    }
+    testFiles.length = 0;
+
     await workspace.getConfiguration('stylelint').update('config', undefined, ConfigurationTarget.Global);
     await workspace.getConfiguration('stylelint').update('autoFixOnSave', undefined, ConfigurationTarget.Global);
   });
 
-  // Verify that configuration passing works.
-  // This test passes, confirming that stylelint is loaded, running, and receiving config.
-  it('should report block-no-empty (config validation)', async () => {
-    await workspace.getConfiguration('stylelint').update('config', {
+  it('should validate config and support autofix workflows', async () => {
+    const config = workspace.getConfiguration('stylelint');
+
+    await config.update('autoFixOnSave', false, ConfigurationTarget.Global);
+    await config.update('config', {
       rules: {
         'block-no-empty': true
       }
     }, ConfigurationTarget.Global);
 
-    const testFileName = join(__dirname, `test-${Math.floor(Math.random() * 100000)}.css`);
+    const validationFileName = trackTestFile(join(__dirname, `test-${Math.floor(Math.random() * 100000)}.css`));
+    fs.writeFileSync(validationFileName, 'a {}');
 
-    fs.writeFileSync(testFileName, 'a {}');
+    const validationDocument = await workspace.openTextDocument(validationFileName);
+    await window.showTextDocument(validationDocument);
 
-    afterEach(function () {
-      if (fs.existsSync(testFileName)) {
-        fs.unlinkSync(testFileName);
-      }
-    });
-
-    const document = await workspace.openTextDocument(testFileName);
-
-    await window.showTextDocument(document);
-
-    // Wait for diagnostics to appear
     await pWaitFor(() => {
-      const diagnostics = languages.getDiagnostics(document.uri);
+      const diagnostics = languages.getDiagnostics(validationDocument.uri);
       const stylelintDiagnostics = diagnostics.filter(d => d.source === 'stylelint');
       return stylelintDiagnostics.length > 0;
     }, { timeout: 30000 });
 
-    const diagnostics = languages.getDiagnostics(document.uri);
-    const stylelintDiagnostics = diagnostics.filter(d => d.source === 'stylelint');
-    assert.isNotEmpty(stylelintDiagnostics);
-    assert.include(stylelintDiagnostics[0].message, 'block-no-empty');
-  });
+    const validationDiagnostics = languages.getDiagnostics(validationDocument.uri)
+      .filter(d => d.source === 'stylelint');
 
-  it('should autofix css', async () => {
-    // Configure stylelint to enforce length-zero-no-unit
-    await workspace.getConfiguration('stylelint').update('config', {
+    assert.isNotEmpty(validationDiagnostics);
+    assert.include(validationDiagnostics[0].message, 'block-no-empty');
+
+    await config.update('config', {
       rules: {
         'length-zero-no-unit': true
       }
     }, ConfigurationTarget.Global);
 
-    const testFileName = join(__dirname, `test-${Math.floor(Math.random() * 100000)}.css`);
+    const autofixFileName = trackTestFile(join(__dirname, `test-${Math.floor(Math.random() * 100000)}.css`));
+    fs.writeFileSync(autofixFileName, 'a { top: 0px; }');
 
-    fs.writeFileSync(testFileName, 'a { top: 0px; }');
+    const autofixDocument = await workspace.openTextDocument(autofixFileName);
+    await window.showTextDocument(autofixDocument);
 
-    afterEach(function () {
-      if (fs.existsSync(testFileName)) {
-        fs.unlinkSync(testFileName);
-      }
-    });
-
-    const document = await workspace.openTextDocument(testFileName);
-
-    await window.showTextDocument(document);
-
-    // Wait for diagnostics to appear
     await pWaitFor(() => {
-      const diagnostics = languages.getDiagnostics(document.uri);
+      const diagnostics = languages.getDiagnostics(autofixDocument.uri);
       const stylelintDiagnostics = diagnostics.filter(d => d.source === 'stylelint');
       return stylelintDiagnostics.length > 0;
     }, { timeout: 30000 });
 
-    // Execute autofix
     await commands.executeCommand('stylelint.executeAutofix');
 
-    // Wait for the change to happen
     await pWaitFor(() => {
-      return document.getText().includes('top: 0;');
+      return autofixDocument.getText().includes('top: 0;');
     }, { timeout: 30000 });
 
-    assert.include(document.getText(), 'top: 0;');
-    assert.notInclude(document.getText(), 'top: 0px;');
-  });
+    assert.include(autofixDocument.getText(), 'top: 0;');
+    assert.notInclude(autofixDocument.getText(), 'top: 0px;');
 
-  it('should autofix on save', async () => {
-    // Enable autoFixOnSave and configure rule
-    await workspace.getConfiguration('stylelint').update('autoFixOnSave', true, ConfigurationTarget.Global);
-    await workspace.getConfiguration('stylelint').update('config', {
+    await config.update('autoFixOnSave', true, ConfigurationTarget.Global);
+    await config.update('config', {
       rules: {
         'length-zero-no-unit': true
       }
     }, ConfigurationTarget.Global);
 
-    const testFileName = join(__dirname, `test-${Math.floor(Math.random() * 100000)}.css`);
+    const autoSaveFileName = trackTestFile(join(__dirname, `test-${Math.floor(Math.random() * 100000)}.css`));
+    fs.writeFileSync(autoSaveFileName, 'a { top: 0px; }');
 
-    fs.writeFileSync(testFileName, 'a { top: 0px; }');
+    const autoSaveDocument = await workspace.openTextDocument(autoSaveFileName);
+    await window.showTextDocument(autoSaveDocument);
 
-    afterEach(function () {
-      if (fs.existsSync(testFileName)) {
-        fs.unlinkSync(testFileName);
-      }
-    });
-
-    const document = await workspace.openTextDocument(testFileName);
-
-    await window.showTextDocument(document);
-
-    // Wait for diagnostics to appear
     await pWaitFor(() => {
-      const diagnostics = languages.getDiagnostics(document.uri);
+      const diagnostics = languages.getDiagnostics(autoSaveDocument.uri);
       const stylelintDiagnostics = diagnostics.filter(d => d.source === 'stylelint');
       return stylelintDiagnostics.length > 0;
     }, { timeout: 3000 });
@@ -139,11 +118,10 @@ describe('Autofix Integration Tests', () => {
     await new Promise(resolve => setTimeout(resolve, 1000));
 
     const edit = new WorkspaceEdit();
-    edit.insert(document.uri, new Position(0, 0), '\n');
+    edit.insert(autoSaveDocument.uri, new Position(0, 0), '\n');
     await workspace.applyEdit(edit);
 
-    // Save document to trigger autofix
-    await document.save();
+    await autoSaveDocument.save();
 
     await new Promise(resolve => setTimeout(resolve, 1000));
 
@@ -151,12 +129,11 @@ describe('Autofix Integration Tests', () => {
 
     await new Promise(resolve => setTimeout(resolve, 1000));
 
-    // Wait for the change to happen
     await pWaitFor(() => {
-      return document.getText().includes('top: 0;');
+      return autoSaveDocument.getText().includes('top: 0;');
     }, { timeout: 3000 });
 
-    assert.include(document.getText(), 'top: 0;');
-    assert.notInclude(document.getText(), 'top: 0px;');
+    assert.include(autoSaveDocument.getText(), 'top: 0;');
+    assert.notInclude(autoSaveDocument.getText(), 'top: 0px;');
   });
 });

@@ -6,6 +6,14 @@ const pWaitFor = require('p-wait-for').default;
 const { join } = require('path');
 const fs = require('fs');
 
+function getStylelintDiagnostics(document) {
+  return languages.getDiagnostics(document.uri).filter(d => d.source === 'stylelint');
+}
+
+async function waitForStylelintDiagnostics(document, timeout = 10000) {
+  await pWaitFor(() => getStylelintDiagnostics(document).length > 0, { timeout });
+}
+
 describe('Document Lifecycle Integration Tests', () => {
   const testFiles = [];
 
@@ -15,7 +23,6 @@ describe('Document Lifecycle Integration Tests', () => {
   });
 
   afterEach(async function () {
-    // Clean up test files
     for (const testFile of testFiles) {
       if (fs.existsSync(testFile)) {
         fs.unlinkSync(testFile);
@@ -23,168 +30,111 @@ describe('Document Lifecycle Integration Tests', () => {
     }
     testFiles.length = 0;
 
-    // Reset configuration
     await workspace.getConfiguration('stylelint').update('config', undefined, ConfigurationTarget.Global);
   });
 
-  it('should validate on document open', async () => {
+  it('should validate on document open and change', async () => {
     await workspace.getConfiguration('stylelint').update('config', {
       rules: {
         'block-no-empty': true
       }
     }, ConfigurationTarget.Global);
 
-    const testFileName = join(__dirname, `test-${Math.floor(Math.random() * 100000)}.css`);
-    testFiles.push(testFileName);
+    const openFileName = join(__dirname, `test-open-${Math.floor(Math.random() * 100000)}.css`);
+    testFiles.push(openFileName);
 
-    fs.writeFileSync(testFileName, 'a {}');
+    fs.writeFileSync(openFileName, 'a {}');
 
-    const document = await workspace.openTextDocument(testFileName);
-    await window.showTextDocument(document);
+    const openDocument = await workspace.openTextDocument(openFileName);
+    await window.showTextDocument(openDocument);
 
-    // Wait for diagnostics to appear after opening
-    await pWaitFor(() => {
-      const diagnostics = languages.getDiagnostics(document.uri);
-      const stylelintDiagnostics = diagnostics.filter(d => d.source === 'stylelint');
-      return stylelintDiagnostics.length > 0;
-    }, { timeout: 10000 });
+    await waitForStylelintDiagnostics(openDocument);
 
-    const allDiagnostics = languages.getDiagnostics(document.uri);
-    const stylelintDiagnostics = allDiagnostics.filter(d => d.source === 'stylelint');
-
+    let stylelintDiagnostics = getStylelintDiagnostics(openDocument);
     assert.isNotEmpty(stylelintDiagnostics, 'Should validate on document open');
     assert.include(stylelintDiagnostics[0].message, 'block-no-empty');
-  });
 
-  it('should validate on content change', async () => {
-    await workspace.getConfiguration('stylelint').update('config', {
-      rules: {
-        'block-no-empty': true
-      }
-    }, ConfigurationTarget.Global);
+    const changeFileName = join(__dirname, `test-change-${Math.floor(Math.random() * 100000)}.css`);
+    testFiles.push(changeFileName);
 
-    const testFileName = join(__dirname, `test-${Math.floor(Math.random() * 100000)}.css`);
-    testFiles.push(testFileName);
+    fs.writeFileSync(changeFileName, 'a { color: red; }');
 
-    // Start with valid content
-    fs.writeFileSync(testFileName, 'a { color: red; }');
+    const changeDocument = await workspace.openTextDocument(changeFileName);
+    const editor = await window.showTextDocument(changeDocument);
 
-    const document = await workspace.openTextDocument(testFileName);
-    const editor = await window.showTextDocument(document);
-
-    // Wait a moment for initial validation
     await new Promise(resolve => setTimeout(resolve, 500));
 
-    // Initially should have no errors
-    let allDiagnostics = languages.getDiagnostics(document.uri);
-    let stylelintDiagnostics = allDiagnostics.filter(d => d.source === 'stylelint');
+    stylelintDiagnostics = getStylelintDiagnostics(changeDocument);
     assert.isEmpty(stylelintDiagnostics, 'Should have no errors with valid content');
 
-    // Edit to introduce an error
     await editor.edit(editBuilder => {
-      // Create a range that covers the entire document
-      const lastLine = document.lineCount - 1;
-      const lastChar = document.lineAt(lastLine).text.length;
+      const lastLine = changeDocument.lineCount - 1;
+      const lastChar = changeDocument.lineAt(lastLine).text.length;
       const fullRange = new Range(new Position(0, 0), new Position(lastLine, lastChar));
       editBuilder.replace(fullRange, 'a {}');
     });
 
-    // Wait for diagnostics after content change
-    await pWaitFor(() => {
-      const diagnostics = languages.getDiagnostics(document.uri);
-      const stylelintDiagnostics = diagnostics.filter(d => d.source === 'stylelint');
-      return stylelintDiagnostics.length > 0;
-    }, { timeout: 10000 });
+    await waitForStylelintDiagnostics(changeDocument);
 
-    allDiagnostics = languages.getDiagnostics(document.uri);
-    stylelintDiagnostics = allDiagnostics.filter(d => d.source === 'stylelint');
-
+    stylelintDiagnostics = getStylelintDiagnostics(changeDocument);
     assert.isNotEmpty(stylelintDiagnostics, 'Should validate on content change');
     assert.include(stylelintDiagnostics[0].message, 'block-no-empty');
   });
 
-  it('should clear diagnostics on document close', async () => {
+  it('should handle document close and rapid changes', async () => {
     await workspace.getConfiguration('stylelint').update('config', {
       rules: {
         'block-no-empty': true
       }
     }, ConfigurationTarget.Global);
 
-    const testFileName = join(__dirname, `test-${Math.floor(Math.random() * 100000)}.css`);
-    testFiles.push(testFileName);
+    const closeFileName = join(__dirname, `test-close-${Math.floor(Math.random() * 100000)}.css`);
+    testFiles.push(closeFileName);
 
-    fs.writeFileSync(testFileName, 'a {}');
+    fs.writeFileSync(closeFileName, 'a {}');
 
-    const document = await workspace.openTextDocument(testFileName);
-    await window.showTextDocument(document);
+    const closeDocument = await workspace.openTextDocument(closeFileName);
+    await window.showTextDocument(closeDocument);
 
-    // Wait for diagnostics to appear
-    await pWaitFor(() => {
-      const diagnostics = languages.getDiagnostics(document.uri);
-      const stylelintDiagnostics = diagnostics.filter(d => d.source === 'stylelint');
-      return stylelintDiagnostics.length > 0;
-    }, { timeout: 10000 });
+    await waitForStylelintDiagnostics(closeDocument);
 
-    const allDiagnostics = languages.getDiagnostics(document.uri);
-    const stylelintDiagnostics = allDiagnostics.filter(d => d.source === 'stylelint');
-    assert.isNotEmpty(stylelintDiagnostics, 'Should have diagnostics before closing');
+    const closeDiagnostics = getStylelintDiagnostics(closeDocument);
+    assert.isNotEmpty(closeDiagnostics, 'Should have diagnostics before closing');
 
-    // Close the document
     await commands.executeCommand('workbench.action.closeActiveEditor');
 
-    // Wait a moment for close to be processed
     await new Promise(resolve => setTimeout(resolve, 1000));
 
-    // Note: Diagnostics clearing on close is handled by the LSP client
-    // We verify the extension remains active and handles the close event
     assert.isTrue(extensions.getExtension('hex-ci.stylelint-plus').isActive,
       'Extension should remain active after document close');
-  });
 
-  it('should handle rapid document changes', async () => {
-    await workspace.getConfiguration('stylelint').update('config', {
-      rules: {
-        'block-no-empty': true
-      }
-    }, ConfigurationTarget.Global);
+    const rapidFileName = join(__dirname, `test-rapid-${Math.floor(Math.random() * 100000)}.css`);
+    testFiles.push(rapidFileName);
 
-    const testFileName = join(__dirname, `test-${Math.floor(Math.random() * 100000)}.css`);
-    testFiles.push(testFileName);
+    fs.writeFileSync(rapidFileName, 'a { color: red; }');
 
-    fs.writeFileSync(testFileName, 'a { color: red; }');
+    const rapidDocument = await workspace.openTextDocument(rapidFileName);
+    const editor = await window.showTextDocument(rapidDocument);
 
-    const document = await workspace.openTextDocument(testFileName);
-    const editor = await window.showTextDocument(document);
-
-    // Perform multiple rapid edits
     for (let i = 0; i < 5; i++) {
       await editor.edit(editBuilder => {
-        const lastLine = document.lineCount - 1;
-        const lastChar = lastLine >= 0 ? document.lineAt(lastLine).text.length : 0;
+        const lastLine = rapidDocument.lineCount - 1;
+        const lastChar = lastLine >= 0 ? rapidDocument.lineAt(lastLine).text.length : 0;
         const fullRange = new Range(new Position(0, 0), new Position(Math.max(0, lastLine), lastChar));
         editBuilder.replace(fullRange, `a { color: rgb(${i}, 0, 0); }`);
       });
     }
 
-    // One final edit with an error
     await editor.edit(editBuilder => {
-      const lastLine = document.lineCount - 1;
-      const lastChar = lastLine >= 0 ? document.lineAt(lastLine).text.length : 0;
+      const lastLine = rapidDocument.lineCount - 1;
+      const lastChar = lastLine >= 0 ? rapidDocument.lineAt(lastLine).text.length : 0;
       const fullRange = new Range(new Position(0, 0), new Position(Math.max(0, lastLine), lastChar));
       editBuilder.replace(fullRange, 'a {}');
     });
 
-    // Wait for final validation
-    await pWaitFor(() => {
-      const diagnostics = languages.getDiagnostics(document.uri);
-      const stylelintDiagnostics = diagnostics.filter(d => d.source === 'stylelint');
-      return stylelintDiagnostics.length > 0;
-    }, { timeout: 10000 });
+    await waitForStylelintDiagnostics(rapidDocument);
 
-    const allDiagnostics = languages.getDiagnostics(document.uri);
-    const stylelintDiagnostics = allDiagnostics.filter(d => d.source === 'stylelint');
-
-    // Should eventually show the error from the final state
-    assert.isNotEmpty(stylelintDiagnostics, 'Should handle rapid document changes and show final state');
+    const rapidDiagnostics = getStylelintDiagnostics(rapidDocument);
+    assert.isNotEmpty(rapidDiagnostics, 'Should handle rapid document changes and show final state');
   });
 });

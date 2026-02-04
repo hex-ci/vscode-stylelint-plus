@@ -15,7 +15,6 @@ describe('Code Actions Integration Tests', () => {
   });
 
   afterEach(async function () {
-    // Clean up test files
     for (const testFile of testFiles) {
       if (fs.existsSync(testFile)) {
         fs.unlinkSync(testFile);
@@ -23,12 +22,10 @@ describe('Code Actions Integration Tests', () => {
     }
     testFiles.length = 0;
 
-    // Reset configuration
     await workspace.getConfiguration('stylelint').update('config', undefined, ConfigurationTarget.Global);
   });
 
-  it('should provide quick fix code actions', async () => {
-    // Configure stylelint with an auto-fixable rule
+  it('should provide quick fix code actions and commands', async () => {
     await workspace.getConfiguration('stylelint').update('config', {
       rules: {
         'length-zero-no-unit': true
@@ -43,73 +40,39 @@ describe('Code Actions Integration Tests', () => {
     const document = await workspace.openTextDocument(testFileName);
     await window.showTextDocument(document);
 
-    // Wait for diagnostics to appear
     await pWaitFor(() => {
       const diagnostics = languages.getDiagnostics(document.uri);
       const stylelintDiagnostics = diagnostics.filter(d => d.source === 'stylelint');
       return stylelintDiagnostics.length > 0;
     }, { timeout: 10000 });
 
-    const allDiagnostics = languages.getDiagnostics(document.uri);
-    const stylelintDiagnostics = allDiagnostics.filter(d => d.source === 'stylelint');
+    const stylelintDiagnostics = languages.getDiagnostics(document.uri)
+      .filter(d => d.source === 'stylelint');
 
     assert.isNotEmpty(stylelintDiagnostics, 'Should have stylelint diagnostics');
 
-    // Request code actions at the diagnostic position
-    // Use string for CodeActionKind to avoid API version issues
-    const codeActions = await commands.executeCommand('vscode.executeCodeActionProvider',
+    const quickFixActions = await commands.executeCommand('vscode.executeCodeActionProvider',
       document.uri,
       stylelintDiagnostics[0].range,
       'quickfix'
     );
 
-    assert.isNotEmpty(codeActions, 'Should provide code actions');
+    const allActions = await commands.executeCommand('vscode.executeCodeActionProvider',
+      document.uri,
+      stylelintDiagnostics[0].range
+    );
 
-    // Verify the code action has the expected structure
-    const fixAction = codeActions.find(action =>
+    assert.isNotEmpty(quickFixActions, 'Should provide code actions');
+    assert.isNotEmpty(allActions, 'Should provide code actions');
+
+    const fixAction = quickFixActions.find(action =>
       action.title && action.title.includes('Fix:')
     );
 
     assert.isDefined(fixAction, 'Should have a fix code action');
     assert.include(fixAction.title, 'Fix:', 'Code action title should start with "Fix:"');
-  });
 
-  it('should include fix command in code actions', async () => {
-    // Configure stylelint with an auto-fixable rule
-    await workspace.getConfiguration('stylelint').update('config', {
-      rules: {
-        'length-zero-no-unit': true
-      }
-    }, ConfigurationTarget.Global);
-
-    const testFileName = join(__dirname, `test-${Math.floor(Math.random() * 100000)}.css`);
-    testFiles.push(testFileName);
-
-    fs.writeFileSync(testFileName, 'a { top: 0px; }');
-
-    const document = await workspace.openTextDocument(testFileName);
-    await window.showTextDocument(document);
-
-    // Wait for diagnostics to appear
-    await pWaitFor(() => {
-      const diagnostics = languages.getDiagnostics(document.uri);
-      const stylelintDiagnostics = diagnostics.filter(d => d.source === 'stylelint');
-      return stylelintDiagnostics.length > 0;
-    }, { timeout: 10000 });
-
-    const allDiagnostics = languages.getDiagnostics(document.uri);
-    const stylelintDiagnostics = allDiagnostics.filter(d => d.source === 'stylelint');
-
-    // Request code actions
-    const codeActions = await commands.executeCommand('vscode.executeCodeActionProvider',
-      document.uri,
-      stylelintDiagnostics[0].range
-    );
-
-    assert.isNotEmpty(codeActions, 'Should provide code actions');
-
-    // Check that at least one code action has the correct command
-    const hasFixCommand = codeActions.some(action =>
+    const hasFixCommand = allActions.some(action =>
       action.command && action.command.command === 'stylelint.executeAutofix'
     );
 

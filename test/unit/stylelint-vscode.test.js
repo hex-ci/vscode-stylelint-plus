@@ -27,29 +27,27 @@ describe('stylelintVSCode', () => {
     });
   });
 
-  it('should lint a document', async () => {
+  it('should lint documents and apply options', async () => {
     const document = TextDocument.create('file:///test.css', 'css', 1, 'body {}');
     await stylelintVSCode(document);
 
-    sinon.assert.calledOnce(loadStylelintStub);
-    sinon.assert.calledOnce(lintStub);
-
-    const lintArgs = lintStub.firstCall.args[0];
-    assert.equal(lintArgs.code, 'body {}');
-    assert.equal(lintArgs.codeFilename, '/test.css');
-  });
-
-  it('should handle options', async () => {
-    const document = TextDocument.create('file:///test.css', 'css', 1, 'body {}');
+    const optionsDocument = TextDocument.create('file:///test2.css', 'css', 1, 'body {}');
     const options = { configFile: '.stylelintrc' };
+    await stylelintVSCode(optionsDocument, options);
 
-    await stylelintVSCode(document, options);
+    sinon.assert.calledTwice(loadStylelintStub);
+    sinon.assert.calledTwice(lintStub);
 
-    const lintArgs = lintStub.firstCall.args[0];
-    assert.equal(lintArgs.configFile, '.stylelintrc');
+    const firstLintArgs = lintStub.firstCall.args[0];
+    assert.equal(firstLintArgs.code, 'body {}');
+    assert.equal(firstLintArgs.codeFilename, '/test.css');
+
+    const secondLintArgs = lintStub.secondCall.args[0];
+    assert.equal(secondLintArgs.configFile, '.stylelintrc');
+    assert.equal(secondLintArgs.codeFilename, '/test2.css');
   });
 
-  it('should throw if invalid arguments', async () => {
+  it('should validate arguments and options', async () => {
     try {
       await stylelintVSCode();
       assert.fail('Should have thrown');
@@ -65,20 +63,21 @@ describe('stylelintVSCode', () => {
       assert.instanceOf(err, TypeError);
       assert.include(err.message, 'Expected a TextDocument');
     }
-  });
 
-  it('should throw if document is not a TextDocument', async () => {
+    const document = TextDocument.create('file:///test.css', 'css', 1, 'body {}');
+
     try {
-      await stylelintVSCode({});
+      await stylelintVSCode(document, 123);
       assert.fail('Should have thrown');
     } catch (err) {
       assert.instanceOf(err, TypeError);
-      assert.include(err.message, 'Expected a TextDocument');
+      assert.include(err.message, 'Expected an object containing stylelint API options');
     }
   });
 
-  it('should handle stylelint errors', async () => {
+  it('should handle diagnostics and empty results', async () => {
     const document = TextDocument.create('file:///test.css', 'css', 1, 'body {}');
+
     lintStub.resolves({
       results: [{
         invalidOptionWarnings: [],
@@ -95,27 +94,12 @@ describe('stylelintVSCode', () => {
     const diagnostics = await stylelintVSCode(document);
     assert.lengthOf(diagnostics, 1);
     assert.equal(diagnostics[0].message, 'bar');
-  });
 
-  it('should return empty array if results is empty', async () => {
-    const document = TextDocument.create('file:///test.css', 'css', 1, 'body {}');
-    lintStub.resolves({
-      results: []
-    });
+    lintStub.resetBehavior();
+    lintStub.resolves({ results: [] });
 
-    const diagnostics = await stylelintVSCode(document);
-    assert.deepEqual(diagnostics, []);
-  });
-
-  it('should throw if options is not a plain object', async () => {
-    const document = TextDocument.create('file:///test.css', 'css', 1, 'body {}');
-    try {
-      await stylelintVSCode(document, 123);
-      assert.fail('Should have thrown');
-    } catch (err) {
-      assert.instanceOf(err, TypeError);
-      assert.include(err.message, 'Expected an object containing stylelint API options');
-    }
+    const emptyDiagnostics = await stylelintVSCode(document);
+    assert.deepEqual(emptyDiagnostics, []);
   });
 
   it('should throw if invalidOptionWarnings are present', async () => {
@@ -136,7 +120,7 @@ describe('stylelintVSCode', () => {
     }
   });
 
-  it('should handle fix: true', async () => {
+  it('should handle fix options and path-based linting', async () => {
     const document = TextDocument.create('file:///test.css', 'css', 1, 'body {}');
     await stylelintVSCode(document, { fix: true });
 
@@ -145,54 +129,31 @@ describe('stylelintVSCode', () => {
     assert.equal(lintArgs.allowEmptyInput, true);
   });
 
-  it('should handle untitled document', async () => {
-    const document = TextDocument.create('untitled:', 'css', 1, 'body {}');
-    await stylelintVSCode(document);
+  it('should handle untitled defaults, syntax inference, and config', async () => {
+    const untitledCss = TextDocument.create('untitled:', 'css', 1, 'body {}');
+    await stylelintVSCode(untitledCss);
 
-    const lintArgs = lintStub.firstCall.args[0];
-    assert.equal(lintArgs.code, 'body {}');
-    assert.isUndefined(lintArgs.codeFilename);
-  });
+    const firstCallArgs = lintStub.firstCall.args[0];
+    assert.equal(firstCallArgs.code, 'body {}');
+    assert.isUndefined(firstCallArgs.codeFilename);
+    assert.deepEqual(firstCallArgs.config, { rules: {} });
 
-  it('should infer syntax from languageId', async () => {
-    const document = TextDocument.create('untitled:', 'scss', 1, 'body {}');
-    await stylelintVSCode(document);
+    const untitledScss = TextDocument.create('untitled:', 'scss', 1, 'body {}');
+    await stylelintVSCode(untitledScss);
+    assert.equal(lintStub.secondCall.args[0].syntax, 'scss');
 
-    const lintArgs = lintStub.firstCall.args[0];
-    assert.equal(lintArgs.syntax, 'scss');
-  });
+    const untitledJs = TextDocument.create('untitled:', 'javascript', 1, 'const style = css`...`');
+    await stylelintVSCode(untitledJs);
+    assert.equal(lintStub.getCall(2).args[0].syntax, 'css-in-js');
 
-  it('should infer syntax from exception languageId', async () => {
-    const document = TextDocument.create('untitled:', 'javascript', 1, 'const style = css`...`');
-    await stylelintVSCode(document);
+    const untitledWithSyntax = TextDocument.create('untitled:', 'css', 1, 'body {}');
+    await stylelintVSCode(untitledWithSyntax, { syntax: 'scss' });
+    assert.equal(lintStub.getCall(3).args[0].syntax, 'scss');
 
-    const lintArgs = lintStub.firstCall.args[0];
-    assert.equal(lintArgs.syntax, 'css-in-js');
-  });
-
-  it('should respect provided syntax for untitled document', async () => {
-    const document = TextDocument.create('untitled:', 'css', 1, 'body {}');
-    await stylelintVSCode(document, { syntax: 'scss' });
-
-    const lintArgs = lintStub.firstCall.args[0];
-    assert.equal(lintArgs.syntax, 'scss');
-  });
-
-  it('should provide default config if none provided for untitled document', async () => {
-    const document = TextDocument.create('untitled:', 'css', 1, 'body {}');
-    await stylelintVSCode(document);
-
-    const lintArgs = lintStub.firstCall.args[0];
-    assert.deepEqual(lintArgs.config, { rules: {} });
-  });
-
-  it('should respect provided config.rules for untitled document', async () => {
-    const document = TextDocument.create('untitled:', 'css', 1, 'body {}');
     const config = { rules: { 'color-no-invalid-hex': true } };
-    await stylelintVSCode(document, { config });
-
-    const lintArgs = lintStub.firstCall.args[0];
-    assert.deepEqual(lintArgs.config, config);
+    const untitledWithConfig = TextDocument.create('untitled:', 'css', 1, 'body {}');
+    await stylelintVSCode(untitledWithConfig, { config });
+    assert.deepEqual(lintStub.getCall(4).args[0].config, config);
   });
 
   it('should fallback to css syntax check on No configuration provided error', async () => {

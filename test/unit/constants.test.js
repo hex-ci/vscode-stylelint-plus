@@ -4,7 +4,7 @@ const { assert } = require('chai');
 const constants = require('../../src/constants');
 
 describe('Constants', () => {
-  it('should export all expected constants', () => {
+  it('should expose expected constants and values', () => {
     assert.isNumber(constants.STYLELINT_ERROR_CODE_CONFIG);
     assert.isNumber(constants.DIAGNOSTIC_OVERLAP_LINE_THRESHOLD);
     assert.isNumber(constants.DIAGNOSTIC_OVERLAP_CHAR_THRESHOLD);
@@ -18,9 +18,7 @@ describe('Constants', () => {
     assert.isNumber(constants.TEMP_FILE_MAX_RETRIES);
     assert.isNumber(constants.TEMP_FILE_RETRY_DELAY_MS);
     assert.isNumber(constants.BATCH_DIAGNOSTICS_INTERVAL_MS);
-  });
 
-  it('should have correct values', () => {
     assert.strictEqual(constants.STYLELINT_ERROR_CODE_CONFIG, 78);
     assert.strictEqual(constants.DIAGNOSTIC_OVERLAP_LINE_THRESHOLD, 1);
     assert.strictEqual(constants.DIAGNOSTIC_OVERLAP_CHAR_THRESHOLD, 2);

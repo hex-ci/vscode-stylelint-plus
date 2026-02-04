@@ -7,36 +7,65 @@ const { join } = require('path');
 const fs = require('fs');
 
 describe('Diagnostics Integration Tests', () => {
-  it('should report syntax errors', async () => {
-    const testFileName = join(__dirname, `test-${Math.floor(Math.random() * 100000)}.css`);
+  const testFiles = [];
 
-    fs.writeFileSync(testFileName, 'body {');
+  function trackTestFile(filePath) {
+    testFiles.push(filePath);
+    return filePath;
+  }
 
-    afterEach(function () {
-      if (fs.existsSync(testFileName)) {
-        fs.unlinkSync(testFileName);
+  function getDiagnosticCases() {
+    return [
+      {
+        label: 'CSS',
+        extension: 'css',
+        content: 'body {',
+        assertionMessage: 'Should have stylelint diagnostics for CSS file'
+      },
+      {
+        label: 'SCSS',
+        extension: 'scss',
+        content: '$color: #ffffff;\na { color: $color; ',
+        assertionMessage: 'Should have stylelint diagnostics for SCSS file'
       }
-    });
+    ];
+  }
 
+  afterEach(function () {
+    for (const testFile of testFiles) {
+      if (fs.existsSync(testFile)) {
+        fs.unlinkSync(testFile);
+      }
+    }
+    testFiles.length = 0;
+  });
+
+  it('should report syntax errors for supported styles', async () => {
     const vscodeStylelint = extensions.getExtension('hex-ci.stylelint-plus');
 
-    const cssDocument = await workspace.openTextDocument(testFileName);
+    for (const testCase of getDiagnosticCases()) {
+      const testFileName = trackTestFile(join(
+        __dirname,
+        `diagnostics-${testCase.label.toLowerCase()}-${Math.floor(Math.random() * 100000)}.${testCase.extension}`
+      ));
 
-    await window.showTextDocument(cssDocument);
+      fs.writeFileSync(testFileName, testCase.content);
 
-    // Wait for activation
-    await pWaitFor(() => vscodeStylelint.isActive, { timeout: 5000 });
+      const document = await workspace.openTextDocument(testFileName);
+      await window.showTextDocument(document);
 
-    // Wait for diagnostics
-    await pWaitFor(() => {
-      const diagnostics = languages.getDiagnostics(cssDocument.uri);
+      await pWaitFor(() => vscodeStylelint.isActive, { timeout: 5000 });
+
+      await pWaitFor(() => {
+        const diagnostics = languages.getDiagnostics(document.uri);
+        const stylelintDiagnostics = diagnostics.filter(d => d.source === 'stylelint');
+        return stylelintDiagnostics.length > 0;
+      }, { timeout: 10000 });
+
+      const diagnostics = languages.getDiagnostics(document.uri);
       const stylelintDiagnostics = diagnostics.filter(d => d.source === 'stylelint');
-      return stylelintDiagnostics.length > 0;
-    }, { timeout: 10000 });
-
-    const diagnostics = languages.getDiagnostics(cssDocument.uri);
-    const stylelintDiagnostics = diagnostics.filter(d => d.source === 'stylelint');
-    assert.isNotEmpty(stylelintDiagnostics);
-    assert.equal(stylelintDiagnostics[0].source, 'stylelint');
+      assert.isNotEmpty(stylelintDiagnostics, testCase.assertionMessage);
+      assert.equal(stylelintDiagnostics[0].source, 'stylelint');
+    }
   });
 });

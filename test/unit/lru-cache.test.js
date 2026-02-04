@@ -1,6 +1,6 @@
 'use strict';
 
-const {assert} = require('chai');
+const { assert } = require('chai');
 const LRUCache = require('../../src/lru-cache');
 
 describe('LRUCache', () => {
@@ -10,104 +10,46 @@ describe('LRUCache', () => {
     cache = new LRUCache(3);
   });
 
-  describe('constructor', () => {
-    it('should create cache with specified max size', () => {
-      assert.strictEqual(cache.maxSize, 3);
-      assert.strictEqual(cache.size, 0);
-    });
+  it('should initialize with max size and empty cache', () => {
+    assert.strictEqual(cache.maxSize, 3);
+    assert.strictEqual(cache.size, 0);
   });
 
-  describe('set and get', () => {
-    it('should store and retrieve values', () => {
-      cache.set('key1', 'value1');
-      assert.strictEqual(cache.get('key1'), 'value1');
-    });
+  it('should support core cache operations', () => {
+    assert.strictEqual(cache.get('nonexistent'), undefined);
+    assert.isFalse(cache.has('missing'));
+    assert.isFalse(cache.delete('missing'));
 
-    it('should return undefined for non-existent keys', () => {
-      assert.strictEqual(cache.get('nonexistent'), undefined);
-    });
+    cache.set('key1', 'value1');
+    assert.strictEqual(cache.get('key1'), 'value1');
+    assert.isTrue(cache.has('key1'));
 
-    it('should update existing keys', () => {
-      cache.set('key1', 'value1');
-      cache.set('key1', 'value2');
-      assert.strictEqual(cache.get('key1'), 'value2');
-      assert.strictEqual(cache.size, 1);
-    });
+    cache.set('key1', 'value2');
+    assert.strictEqual(cache.get('key1'), 'value2');
+    assert.strictEqual(cache.size, 1);
 
-    it('should evict oldest entry when exceeding max size', () => {
-      cache.set('key1', 'value1');
-      cache.set('key2', 'value2');
-      cache.set('key3', 'value3');
-      cache.set('key4', 'value4');
+    cache.set('key2', 'value2');
+    cache.set('key3', 'value3');
+    assert.strictEqual(cache.size, 3);
 
-      assert.strictEqual(cache.get('key1'), undefined);
-      assert.strictEqual(cache.get('key2'), 'value2');
-      assert.strictEqual(cache.get('key3'), 'value3');
-      assert.strictEqual(cache.get('key4'), 'value4');
-    });
+    assert.isTrue(cache.delete('key2'));
+    assert.isFalse(cache.has('key2'));
 
-    it('should move accessed items to newest position', () => {
-      cache.set('key1', 'value1');
-      cache.set('key2', 'value2');
-      cache.set('key3', 'value3');
-
-      // Access key1, making it newest
-      cache.get('key1');
-
-      // Add key4, should evict key2 (now oldest)
-      cache.set('key4', 'value4');
-
-      assert.strictEqual(cache.get('key1'), 'value1');
-      assert.strictEqual(cache.get('key2'), undefined);
-      assert.strictEqual(cache.get('key3'), 'value3');
-      assert.strictEqual(cache.get('key4'), 'value4');
-    });
+    cache.clear();
+    assert.strictEqual(cache.size, 0);
   });
 
-  describe('has', () => {
-    it('should return true for existing keys', () => {
-      cache.set('key1', 'value1');
-      assert.isTrue(cache.has('key1'));
-    });
+  it('should evict and reorder entries by recent access', () => {
+    cache.set('key1', 'value1');
+    cache.set('key2', 'value2');
+    cache.set('key3', 'value3');
 
-    it('should return false for non-existent keys', () => {
-      assert.isFalse(cache.has('nonexistent'));
-    });
-  });
+    cache.get('key1');
+    cache.set('key4', 'value4');
 
-  describe('delete', () => {
-    it('should delete existing keys', () => {
-      cache.set('key1', 'value1');
-      assert.isTrue(cache.delete('key1'));
-      assert.isFalse(cache.has('key1'));
-    });
-
-    it('should return false for non-existent keys', () => {
-      assert.isFalse(cache.delete('nonexistent'));
-    });
-  });
-
-  describe('clear', () => {
-    it('should remove all entries', () => {
-      cache.set('key1', 'value1');
-      cache.set('key2', 'value2');
-      cache.clear();
-
-      assert.strictEqual(cache.size, 0);
-      assert.isFalse(cache.has('key1'));
-      assert.isFalse(cache.has('key2'));
-    });
-  });
-
-  describe('size', () => {
-    it('should reflect current cache size', () => {
-      assert.strictEqual(cache.size, 0);
-      cache.set('key1', 'value1');
-      assert.strictEqual(cache.size, 1);
-      cache.set('key2', 'value2');
-      assert.strictEqual(cache.size, 2);
-      cache.delete('key1');
-      assert.strictEqual(cache.size, 1);
-    });
+    assert.strictEqual(cache.get('key2'), undefined);
+    assert.strictEqual(cache.get('key1'), 'value1');
+    assert.strictEqual(cache.get('key3'), 'value3');
+    assert.strictEqual(cache.get('key4'), 'value4');
   });
 });

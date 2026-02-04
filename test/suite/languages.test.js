@@ -9,81 +9,51 @@ const fs = require('fs');
 describe('Languages Integration Tests', () => {
   const testFiles = [];
 
-  afterEach(function () {
-    // Clean up all test files
-    for (const testFile of testFiles) {
-      if (fs.existsSync(testFile)) {
-        fs.unlinkSync(testFile);
-      }
-    }
-    testFiles.length = 0;
-  });
+  function trackTestFile(filePath) {
+    testFiles.push(filePath);
+    return filePath;
+  }
 
-  it('should activate on Less files', async () => {
-    const testFileName = join(__dirname, `test-${Math.floor(Math.random() * 100000)}.less`);
-    testFiles.push(testFileName);
-
-    fs.writeFileSync(testFileName, '.test { color: red; }');
-
-    const vscodeStylelint = extensions.getExtension('hex-ci.stylelint-plus');
-    const lessDocument = await workspace.openTextDocument(testFileName);
-    await window.showTextDocument(lessDocument);
-
-    // Wait for activation - testing extension's document selector
-    await pWaitFor(() => vscodeStylelint.isActive, { timeout: 5000 });
-
-    assert.isTrue(vscodeStylelint.isActive, 'Extension should activate for Less files');
-    assert.strictEqual(lessDocument.languageId, 'less', 'Document should be recognized as Less');
-  });
-
-  it('should activate on Sass files', async () => {
-    const testFileName = join(__dirname, `test-${Math.floor(Math.random() * 100000)}.sass`);
-    testFiles.push(testFileName);
-
-    // Sass indented syntax
-    fs.writeFileSync(testFileName, '.test\n  color: red');
-
-    const vscodeStylelint = extensions.getExtension('hex-ci.stylelint-plus');
-    const sassDocument = await workspace.openTextDocument(testFileName);
-    await window.showTextDocument(sassDocument);
-
-    // Wait for activation - testing extension's document selector
-    await pWaitFor(() => vscodeStylelint.isActive, { timeout: 5000 });
-
-    assert.isTrue(vscodeStylelint.isActive, 'Extension should activate for Sass files');
-    // Note: languageId may be 'plaintext' if no Sass extension is installed, that's ok
-    // The important thing is extension activation
-  });
-
-  it('should activate on Vue files', async () => {
-    const testFileName = join(__dirname, `test-${Math.floor(Math.random() * 100000)}.vue`);
-    testFiles.push(testFileName);
-
-    fs.writeFileSync(testFileName, `<template>
+  function getActivationCases() {
+    return [
+      {
+        label: 'CSS',
+        extension: 'css',
+        content: 'body { color: red; }',
+        expectedLanguageId: 'css'
+      },
+      {
+        label: 'SCSS',
+        extension: 'scss',
+        content: '$color: #ffffff;\n.test { color: $color; }',
+        expectedLanguageId: 'scss'
+      },
+      {
+        label: 'Less',
+        extension: 'less',
+        content: '.test { color: red; }',
+        expectedLanguageId: 'less'
+      },
+      {
+        label: 'Sass',
+        extension: 'sass',
+        content: '.test\n  color: red'
+      },
+      {
+        label: 'Vue',
+        extension: 'vue',
+        content: `<template>
   <div class="test">Hello</div>
 </template>
 
 <style>
 .test { color: red; }
-</style>`);
-
-    const vscodeStylelint = extensions.getExtension('hex-ci.stylelint-plus');
-    const vueDocument = await workspace.openTextDocument(testFileName);
-    await window.showTextDocument(vueDocument);
-
-    // Wait for activation - testing extension's document selector
-    await pWaitFor(() => vscodeStylelint.isActive, { timeout: 5000 });
-
-    assert.isTrue(vscodeStylelint.isActive, 'Extension should activate for Vue files');
-    // Note: languageId may be 'plaintext' if no Vue extension is installed, that's ok
-    // The important thing is extension activation
-  });
-
-  it('should activate on HTML files', async () => {
-    const testFileName = join(__dirname, `test-${Math.floor(Math.random() * 100000)}.html`);
-    testFiles.push(testFileName);
-
-    fs.writeFileSync(testFileName, `<!DOCTYPE html>
+</style>`
+      },
+      {
+        label: 'HTML',
+        extension: 'html',
+        content: `<!DOCTYPE html>
 <html>
 <head>
   <style>
@@ -93,46 +63,65 @@ describe('Languages Integration Tests', () => {
 <body>
   <div class="test">Hello</div>
 </body>
-</html>`);
-
-    const vscodeStylelint = extensions.getExtension('hex-ci.stylelint-plus');
-    const htmlDocument = await workspace.openTextDocument(testFileName);
-    await window.showTextDocument(htmlDocument);
-
-    // Wait for activation - testing extension's document selector
-    await pWaitFor(() => vscodeStylelint.isActive, { timeout: 5000 });
-
-    assert.isTrue(vscodeStylelint.isActive, 'Extension should activate for HTML files');
-    assert.strictEqual(htmlDocument.languageId, 'html', 'Document should be recognized as HTML');
-  });
-
-  it('should activate on JavaScript files', async () => {
-    const testFileName = join(__dirname, `test-${Math.floor(Math.random() * 100000)}.js`);
-    testFiles.push(testFileName);
-
-    fs.writeFileSync(testFileName, `const styles = \`
+</html>`,
+        expectedLanguageId: 'html'
+      },
+      {
+        label: 'JavaScript',
+        extension: 'js',
+        content: `const styles = \`
   .test {
     color: red;
   }
-\`;`);
+\`;`,
+        expectedLanguageId: 'javascript'
+      }
+    ];
+  }
 
+  afterEach(function () {
+    for (const testFile of testFiles) {
+      if (fs.existsSync(testFile)) {
+        fs.unlinkSync(testFile);
+      }
+    }
+    testFiles.length = 0;
+  });
+
+  it('should activate on supported languages', async () => {
     const vscodeStylelint = extensions.getExtension('hex-ci.stylelint-plus');
-    const jsDocument = await workspace.openTextDocument(testFileName);
-    await window.showTextDocument(jsDocument);
 
-    // Wait for activation - testing extension's document selector
-    await pWaitFor(() => vscodeStylelint.isActive, { timeout: 5000 });
+    for (const testCase of getActivationCases()) {
+      const testFileName = trackTestFile(join(
+        __dirname,
+        `test-${testCase.label.toLowerCase()}-${Math.floor(Math.random() * 100000)}.${testCase.extension}`
+      ));
 
-    assert.isTrue(vscodeStylelint.isActive, 'Extension should activate for JavaScript files');
-    assert.strictEqual(jsDocument.languageId, 'javascript', 'Document should be recognized as JavaScript');
+      fs.writeFileSync(testFileName, testCase.content);
+
+      const document = await workspace.openTextDocument(testFileName);
+      await window.showTextDocument(document);
+
+      await pWaitFor(() => vscodeStylelint.isActive, { timeout: 5000 });
+
+      assert.isTrue(
+        vscodeStylelint.isActive,
+        `Extension should activate for ${testCase.label} files`
+      );
+
+      if (testCase.expectedLanguageId) {
+        assert.strictEqual(
+          document.languageId,
+          testCase.expectedLanguageId,
+          `Document should be recognized as ${testCase.label}`
+        );
+      }
+    }
   });
 
   it('should use correct document selector from package.json', async () => {
-    // Verify that the extension uses the document selector defined in package.json
     const vscodeStylelint = extensions.getExtension('hex-ci.stylelint-plus');
     const packageJson = vscodeStylelint.packageJSON;
-
-    // Check that activationEvents includes the languages we expect
     const activationEvents = packageJson.activationEvents || [];
     const languageActivations = activationEvents.filter(e => e.startsWith('onLanguage:'));
 
