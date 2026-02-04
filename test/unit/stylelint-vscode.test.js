@@ -5,6 +5,13 @@ const proxyquire = require('proxyquire');
 const sinon = require('sinon');
 const { TextDocument } = require('vscode-languageserver');
 
+function buildRuleMetadata() {
+  return {
+    'length-zero-no-unit': { fixable: true },
+    'color-no-invalid-hex': { fixable: false }
+  };
+}
+
 describe('stylelintVSCode', () => {
   let stylelintVSCode;
   let loadStylelintStub;
@@ -15,7 +22,8 @@ describe('stylelintVSCode', () => {
       results: [{
         invalidOptionWarnings: [],
         warnings: []
-      }]
+      }],
+      ruleMetadata: buildRuleMetadata()
     });
 
     loadStylelintStub = sinon.stub().resolves({
@@ -88,18 +96,36 @@ describe('stylelintVSCode', () => {
           severity: 'error',
           text: 'bar'
         }]
+      }],
+      ruleMetadata: buildRuleMetadata()
+    });
+
+    const { diagnostics, ruleMetadata } = await stylelintVSCode(document);
+    assert.lengthOf(diagnostics, 1);
+    assert.equal(diagnostics[0].message, 'bar');
+    assert.deepEqual(ruleMetadata, buildRuleMetadata());
+
+    lintStub.resetBehavior();
+    lintStub.resolves({});
+
+    const emptyResult = await stylelintVSCode(document);
+    assert.deepEqual(emptyResult, { diagnostics: [], ruleMetadata: {} });
+
+    lintStub.resetBehavior();
+    lintStub.resolves({
+      results: [{
+        invalidOptionWarnings: [],
+        warnings: [],
+        _postcssResult: {
+          stylelint: {
+            ruleMetadata: buildRuleMetadata()
+          }
+        }
       }]
     });
 
-    const diagnostics = await stylelintVSCode(document);
-    assert.lengthOf(diagnostics, 1);
-    assert.equal(diagnostics[0].message, 'bar');
-
-    lintStub.resetBehavior();
-    lintStub.resolves({ results: [] });
-
-    const emptyDiagnostics = await stylelintVSCode(document);
-    assert.deepEqual(emptyDiagnostics, []);
+    const fallbackResult = await stylelintVSCode(document);
+    assert.deepEqual(fallbackResult, { diagnostics: [], ruleMetadata: buildRuleMetadata() });
   });
 
   it('should throw if invalidOptionWarnings are present', async () => {
@@ -108,7 +134,8 @@ describe('stylelintVSCode', () => {
       results: [{
         invalidOptionWarnings: [{ text: 'Invalid option' }],
         warnings: []
-      }]
+      }],
+      ruleMetadata: buildRuleMetadata()
     });
 
     try {
@@ -164,7 +191,8 @@ describe('stylelintVSCode', () => {
       results: [{
         invalidOptionWarnings: [],
         warnings: []
-      }]
+      }],
+      ruleMetadata: buildRuleMetadata()
     });
 
     await stylelintVSCode(document);

@@ -37,10 +37,23 @@ const LANGUAGE_EXTENSION_EXCEPTION_PAIRS = new Map([
   ['xsl', 'html']
 ]);
 
-function processResults({results}) {
+function processResults(resultContainer) {
+  const results = (resultContainer && Array.isArray(resultContainer.results))
+    ? resultContainer.results
+    : [];
+  const firstResult = results[0];
+  const ruleMetadata = (resultContainer && resultContainer.ruleMetadata)
+    ? resultContainer.ruleMetadata
+    : (firstResult && firstResult._postcssResult && firstResult._postcssResult.stylelint
+      ? firstResult._postcssResult.stylelint.ruleMetadata
+      : null);
+
   // https://github.com/stylelint/stylelint/blob/10.0.1/lib/standalone.js#L114-L122
   if (results.length === 0) {
-    return [];
+    return {
+      diagnostics: [],
+      ruleMetadata: {}
+    };
   }
 
   const [{invalidOptionWarnings, warnings}] = results;
@@ -49,7 +62,10 @@ function processResults({results}) {
     throw arrayToError(map(invalidOptionWarnings, 'text'), SyntaxError);
   }
 
-  return warnings.map(stylelintWarningToVscodeDiagnostic);
+  return {
+    diagnostics: warnings.map(stylelintWarningToVscodeDiagnostic),
+    ruleMetadata
+  };
 }
 
 module.exports = async function stylelintVSCode(textDocument, options = {}) {

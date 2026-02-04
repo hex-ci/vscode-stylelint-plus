@@ -417,7 +417,7 @@ class StylelintServer {
         isLocal: this.isUsingLocal
       });
 
-      const diagnostics = await stylelintVSCode(document, options);
+      const {diagnostics, ruleMetadata} = await stylelintVSCode(document, options);
 
       // Check if cancelled before sending diagnostics
       if (token.cancelled) {
@@ -426,7 +426,7 @@ class StylelintServer {
 
       // Use batcher for efficient sending
       this.diagnosticsBatcher.add(document.uri, diagnostics);
-      this.documentDiagnostics.set(document.uri, diagnostics);
+      this.documentDiagnostics.set(document.uri, {diagnostics, ruleMetadata});
 
       this.safeNotification('setStatusBarOk');
     }
@@ -673,7 +673,24 @@ function startServer() {
       return [];
     }
 
-    for (const diagnostic of stylelintDiagnostics) {
+    const { ruleMetadata } = server.documentDiagnostics.get(textDocument.uri) || {};
+
+    const fixableDiagnostics = stylelintDiagnostics.filter(diagnostic => {
+      const rule = diagnostic.code;
+
+      if (rule && ruleMetadata[rule]) {
+        return ruleMetadata[rule].fixable === true;
+      }
+      else {
+        return false;
+      }
+    });
+
+    if (fixableDiagnostics.length === 0) {
+      return [];
+    }
+
+    for (const diagnostic of fixableDiagnostics) {
       codeActions.push({
         title: `Fix: ${diagnostic.message}`,
         kind: CodeActionKind.QuickFix,

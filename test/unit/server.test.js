@@ -5,7 +5,6 @@ const sinon = require('sinon');
 const proxyquire = require('proxyquire');
 const path = require('path');
 const Module = require('module');
-const { URI } = require('vscode-uri');
 
 describe('Server', () => {
   let connectionMock;
@@ -65,7 +64,7 @@ describe('Server', () => {
       syncKind: 1
     };
 
-    stylelintVSCodeStub = sinon.stub().resolves([]);
+    stylelintVSCodeStub = sinon.stub().resolves({ diagnostics: [], ruleMetadata: {} });
     loadStylelintStub = sinon.stub().resolves({ lint: sinon.stub().resolves({ results: [] }) });
     findPkgDirStub = sinon.stub();
 
@@ -460,7 +459,7 @@ describe('Server', () => {
 
       // Mock resolveStylelintOptions and stylelintVSCode
       server.resolveStylelintOptions = sinon.stub().resolves({ ignorePath: '/test/.stylelintignore' });
-      stylelintVSCodeStub.resolves([]);
+      stylelintVSCodeStub.resolves({ diagnostics: [], ruleMetadata: {} });
 
       server.validateDebounced(document);
 
@@ -486,7 +485,7 @@ describe('Server', () => {
       // Mock resolveStylelintOptions to avoid file system calls
       server.resolveStylelintOptions = sinon.stub().resolves({ ignorePath: '/test/.stylelintignore' });
 
-      stylelintVSCodeStub.resolves([]);
+      stylelintVSCodeStub.resolves({ diagnostics: [], ruleMetadata: {} });
 
       await server.validate(document);
 
@@ -497,7 +496,7 @@ describe('Server', () => {
       const server = new StylelintServer(connectionMock, documentsMock);
 
       server.resolveStylelintOptions = sinon.stub().resolves({ ignorePath: '/test/.stylelintignore' });
-      stylelintVSCodeStub.resolves([]);
+      stylelintVSCodeStub.resolves({ diagnostics: [], ruleMetadata: {} });
 
       const document = { uri: 'file:///test.css', getText: () => 'css' };
 
@@ -541,7 +540,7 @@ describe('Server', () => {
       const server = new LocalStylelintServer(connectionMock, documentsMock);
       const resolveStub = sinon.stub(server, 'resolveStylelintOptions').resolves({ ignorePath: '/test/.stylelintignore' });
 
-      stylelintVSCodeStub.resolves([]);
+      stylelintVSCodeStub.resolves({ diagnostics: [], ruleMetadata: {} });
 
       const document = { uri: 'file:///test.css', getText: () => 'css' };
 
@@ -579,7 +578,7 @@ describe('Server', () => {
 
       assert.isTrue(server.validationTokens.has('file:///test.css'));
 
-      resolveSecondLint([]);
+      resolveSecondLint({ diagnostics: [], ruleMetadata: {} });
       await secondPromise;
 
       assert.isFalse(server.validationTokens.has('file:///test.css'));
@@ -592,7 +591,7 @@ describe('Server', () => {
       stylelintVSCodeStub.callsFake(async () => {
         // Simulate the token being cancelled during validation
         server.validationTokens.get('file:///test.css').cancelled = true;
-        return [];
+        return { diagnostics: [], ruleMetadata: {} };
       });
 
       server.resolveStylelintOptions = sinon.stub().resolves({ ignorePath: '/test/.stylelintignore' });
@@ -628,7 +627,7 @@ describe('Server', () => {
       server.config = { rules: { 'color-no-invalid-hex': true } };
 
       server.resolveStylelintOptions = sinon.stub().resolves({ ignorePath: '/test/.stylelintignore' });
-      stylelintVSCodeStub.resolves([]);
+      stylelintVSCodeStub.resolves({ diagnostics: [], ruleMetadata: {} });
 
       const document = { uri: 'file:///test.css', getText: () => 'css' };
 
@@ -644,7 +643,7 @@ describe('Server', () => {
       server.configOverrides = { rules: { 'block-no-empty': false } };
 
       server.resolveStylelintOptions = sinon.stub().resolves({ ignorePath: '/test/.stylelintignore' });
-      stylelintVSCodeStub.resolves([]);
+      stylelintVSCodeStub.resolves({ diagnostics: [], ruleMetadata: {} });
 
       const document = { uri: 'file:///test.css', getText: () => 'css' };
 
@@ -663,7 +662,7 @@ describe('Server', () => {
         ignorePath: '/test/.stylelintignore',
         path: '/project/node_modules/stylelint'
       });
-      stylelintVSCodeStub.resolves([]);
+      stylelintVSCodeStub.resolves({ diagnostics: [], ruleMetadata: {} });
 
       const document = { uri: 'file:///test.css', getText: () => 'css' };
 
@@ -684,7 +683,7 @@ describe('Server', () => {
       // Mock resolveStylelintOptions to avoid file system calls
       server.resolveStylelintOptions = sinon.stub().resolves({ ignorePath: '/test/.stylelintignore' });
 
-      stylelintVSCodeStub.resolves([]);
+      stylelintVSCodeStub.resolves({ diagnostics: [], ruleMetadata: {} });
 
       await server.validate(document);
 
@@ -694,7 +693,7 @@ describe('Server', () => {
     it('should fallback to dirname when no workspace folder', async () => {
       const server = new StylelintServer(connectionMock, documentsMock);
       server.resolveStylelintOptions = sinon.stub().resolves({ ignorePath: '/test/.stylelintignore' });
-      stylelintVSCodeStub.resolves([]);
+      stylelintVSCodeStub.resolves({ diagnostics: [], ruleMetadata: {} });
 
       // Mock getWorkspaceFolders to return empty (no workspace)
       connectionMock.workspace.getWorkspaceFolders.resolves([]);
@@ -721,7 +720,7 @@ describe('Server', () => {
         return { ignorePath: '/test/.stylelintignore' };
       });
 
-      stylelintVSCodeStub.resolves([]);
+      stylelintVSCodeStub.resolves({ diagnostics: [], ruleMetadata: {} });
 
       const document = { uri: 'file:///test.css', getText: () => 'css' };
 
@@ -734,7 +733,7 @@ describe('Server', () => {
     it('should set cwd from workspace when workspace exists', async () => {
       const server = new StylelintServer(connectionMock, documentsMock);
       server.resolveStylelintOptions = sinon.stub().resolves({ ignorePath: '/test/.stylelintignore' });
-      stylelintVSCodeStub.resolves([]);
+      stylelintVSCodeStub.resolves({ diagnostics: [], ruleMetadata: {} });
 
       // Return a workspace folder for the document
       connectionMock.workspace.getWorkspaceFolders.resolves([
@@ -776,7 +775,7 @@ describe('Server', () => {
       ]);
 
       server.resolveStylelintOptions = sinon.stub().resolves({ ignorePath: '/test/.stylelintignore' });
-      stylelintVSCodeStub.resolves([]);
+      stylelintVSCodeStub.resolves({ diagnostics: [], ruleMetadata: {} });
 
       await server.validateAll();
 
@@ -913,7 +912,7 @@ describe('Server', () => {
 
       connectionMock.workspace.getWorkspaceFolders.resolves([]);
       server.resolveStylelintOptions = sinon.stub().resolves({ ignorePath: '/test/.stylelintignore' });
-      stylelintVSCodeStub.resolves([]);
+      stylelintVSCodeStub.resolves({ diagnostics: [], ruleMetadata: {} });
 
       const document = { uri: 'file:///project/test.css', getText: () => 'css' };
 
@@ -1321,11 +1320,21 @@ describe('Server', () => {
     it('should return code actions for stylelint diagnostics', async () => {
       startServer();
 
+      const ruleMetadata = {
+        'length-zero-no-unit': { fixable: true }
+      };
+
+      DocumentDiagnosticsManagerStub().get.returns({ ruleMetadata });
+
       const params = {
         textDocument: { uri: 'file:///test.css' },
         context: {
           diagnostics: [
-            { source: 'stylelint', message: 'Unexpected color' },
+            {
+              source: 'stylelint',
+              message: 'Unexpected color',
+              code: 'length-zero-no-unit'
+            },
             { source: 'other-linter', message: 'other error' }
           ]
         }
@@ -1338,6 +1347,54 @@ describe('Server', () => {
       assert.equal(result[0].title, 'Fix: Unexpected color');
       assert.equal(result[0].kind, 'quickfix');
       assert.equal(result[0].command.command, 'stylelint.executeAutofix');
+    });
+
+    it('should ignore diagnostics without metadata match', async () => {
+      startServer();
+
+      DocumentDiagnosticsManagerStub().get.returns({ ruleMetadata: {} });
+
+      const params = {
+        textDocument: { uri: 'file:///test.css' },
+        context: {
+          diagnostics: [
+            {
+              source: 'stylelint',
+              message: 'Unexpected color',
+              code: 'length-zero-no-unit'
+            }
+          ]
+        }
+      };
+
+      const result = await handlers.onCodeAction(params);
+
+      assert.isArray(result);
+      assert.equal(result.length, 0);
+    });
+
+    it('should handle missing diagnostics cache entry', async () => {
+      startServer();
+
+      DocumentDiagnosticsManagerStub().get.returns(undefined);
+
+      const params = {
+        textDocument: { uri: 'file:///test.css' },
+        context: {
+          diagnostics: [
+            {
+              source: 'stylelint',
+              message: 'Unexpected color',
+              code: null
+            }
+          ]
+        }
+      };
+
+      const result = await handlers.onCodeAction(params);
+
+      assert.isArray(result);
+      assert.equal(result.length, 0);
     });
 
     it('should handle invalid URI in executeAutofix request', async () => {

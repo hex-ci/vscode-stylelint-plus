@@ -23,7 +23,7 @@ class DocumentDiagnosticsManager {
   /**
    * Store diagnostics for a document
    * @param {string} uri - Document URI
-   * @param {Array} diagnostics - Array of diagnostic objects
+   * @param {Object} diagnostics - diagnostic objects
    */
   set(uri, diagnostics) {
     this.diagnostics.set(uri, diagnostics);
@@ -33,7 +33,7 @@ class DocumentDiagnosticsManager {
   /**
    * Get diagnostics for a document
    * @param {string} uri - Document URI
-   * @returns {Array|undefined} Array of diagnostics or undefined
+   * @returns {Object|undefined} diagnostics or undefined
    */
   get(uri) {
     this.lastAccessed.set(uri, Date.now());
