@@ -399,6 +399,7 @@ describe('Extension Activation', () => {
 
   it('should handle client start failure', async () => {
     const startError = new Error('Failed to start language server');
+    const consoleErrorStub = sinon.stub(console, 'error');
 
     // Create a new client instance where onReady rejects
     const failingClientInstance = {
@@ -436,7 +437,10 @@ describe('Extension Activation', () => {
     await new Promise(resolve => setImmediate(resolve));
     await new Promise(resolve => setImmediate(resolve));
 
+    assert.isTrue(consoleErrorStub.calledWith('Language client failed to start:', startError));
     assert.isTrue(vscodeMock.window.showErrorMessage.calledWith('Stylelint+ extension failed to start'));
+
+    consoleErrorStub.restore();
   });
 
   it('should deactivate and stop client', async () => {

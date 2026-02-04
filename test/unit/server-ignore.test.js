@@ -8,26 +8,19 @@ const path = require('path');
 describe('Server Ignore Handling', () => {
   let connectionMock;
   let documentsMock;
-  let stylelintVSCodeStub;
-  let loadStylelintStub;
-  let findPkgDirStub;
-  let pathIsInsideStub;
-  let fsStub;
+  let StylelintServer;
   let fsPromisesStub;
-  let utilsStub;
-  let pathStub;
-  let parseUriStub;
-
-  // Captured event handlers
-  let onDidChangeConfigurationHandler;
-  let onDidChangeContentHandler;
+  let findPkgDirStub;
+  let processOnStub;
 
   beforeEach(() => {
-    // Reset handlers
-    onDidChangeConfigurationHandler = null;
-    onDidChangeContentHandler = null;
+    if (processOnStub) {
+      processOnStub.restore();
+      processOnStub = null;
+    }
 
-    // Mocks
+    processOnStub = sinon.stub(process, 'on');
+
     connectionMock = {
       workspace: {
         getWorkspaceFolders: sinon.stub().resolves([]),
@@ -41,116 +34,83 @@ describe('Server Ignore Handling', () => {
       },
       sendDiagnostics: sinon.stub(),
       sendNotification: sinon.stub(),
-      sendRequest: sinon.stub(),
-      onInitialize: sinon.stub().callsFake(() => null),
-      onCodeAction: sinon.stub(),
-      onRequest: sinon.stub(),
-      onDidChangeConfiguration: sinon.stub().callsFake(fn => onDidChangeConfigurationHandler = fn),
-      onDidChangeWatchedFiles: sinon.stub(),
-      onShutdown: sinon.stub(),
-      listen: sinon.stub()
+      sendRequest: sinon.stub()
     };
 
     documentsMock = {
       all: sinon.stub().returns([]),
       get: sinon.stub(),
-      syncKind: 1,
-      onDidChangeContent: sinon.stub().callsFake(fn => onDidChangeContentHandler = fn),
-      onDidClose: sinon.stub(),
-      onDidSave: sinon.stub(),
-      listen: sinon.stub()
+      syncKind: 1
     };
-
-    stylelintVSCodeStub = sinon.stub().resolves([]);
-    loadStylelintStub = sinon.stub().resolves({ lint: sinon.stub().resolves({ results: [] }) });
-    findPkgDirStub = sinon.stub();
-    pathIsInsideStub = sinon.stub();
 
     fsPromisesStub = {
-      readFile: sinon.stub(),
-      writeFile: sinon.stub(),
-      unlink: sinon.stub(),
-      access: sinon.stub()
+      readFile: sinon.stub().resolves(''),
+      writeFile: sinon.stub().resolves(),
+      unlink: sinon.stub().resolves(),
+      access: sinon.stub().rejects(new Error('ENOENT')) // Default: no ignore files exist
     };
 
-    fsStub = {
-      existsSync: sinon.stub().returns(true),
-      promises: fsPromisesStub
-    };
+    findPkgDirStub = sinon.stub().returns(null);
 
-    utilsStub = {
-      isRangeOverlap: sinon.stub().returns(true),
-      generateTextEdits: sinon.stub().returns([]),
-      generateTempFilename: sinon.stub().callsFake((filePath) => {
-        const parsed = path.parse(filePath);
-        const ext = path.extname(filePath) || '.css';
-        return `/tmp/_temp_vscode_autofix_${parsed.base || 'file'}${ext}`;
-      })
-    };
-
-    pathStub = {
-      join: sinon.stub().callsFake((...args) => path.join(...args)),
-      resolve: sinon.stub().callsFake((...args) => path.resolve(...args)),
-      parse: sinon.stub().callsFake((...args) => path.parse(...args)),
-      extname: sinon.stub().callsFake((...args) => path.extname(...args)),
-      dirname: sinon.stub().callsFake((p) => path.dirname(p)),
-      sep: path.sep
-    };
-
-    parseUriStub = sinon.stub().callsFake((uri) => ({ fsPath: uri && uri.replace ? uri.replace('file://', '') : uri }));
-
-    // Initialize server
-    proxyquire('../../src/server', {
-      'vscode-languageserver': {
-        createConnection: () => connectionMock,
-        ProposedFeatures: { all: {} },
-        TextDocuments: function() { return documentsMock; },
-        CodeActionKind: { QuickFix: 'quickfix' }
+    // Get the StylelintServer class with mocked dependencies
+    const serverModule = proxyquire('../../src/server', {
+      'fs': {
+        existsSync: sinon.stub().returns(true),
+        promises: fsPromisesStub
       },
-      './stylelint-vscode': stylelintVSCodeStub,
-      './load-stylelint': loadStylelintStub,
       'find-pkg-dir': findPkgDirStub,
-      'fs': fsStub,
-      './utils': utilsStub,
-      'path': pathStub,
-      'vscode-uri': {
-        URI: {
-          parse: parseUriStub
-        }
-      }
+      './utils': {
+        isRangeOverlap: sinon.stub().returns(true),
+        generateTextEdits: sinon.stub().returns([]),
+        generateTempFilename: sinon.stub().callsFake((filePath) => {
+          const parsed = path.parse(filePath);
+          const ext = path.extname(filePath) || '.css';
+          return `/tmp/_temp_vscode_autofix_${parsed.base || 'file'}${ext}`;
+        })
+      },
+      './lru-cache': sinon.stub().returns({ get: sinon.stub(), set: sinon.stub(), clear: sinon.stub() }),
+      './document-diagnostics-manager': sinon.stub().returns({ set: sinon.stub(), delete: sinon.stub(), dispose: sinon.stub() }),
+      './diagnostics-batcher': sinon.stub().returns({ add: sinon.stub(), dispose: sinon.stub() })
     });
+
+    StylelintServer = serverModule.StylelintServer;
   });
 
   it('should find closest .stylelintignore in workspace', async () => {
-    const document = { uri: 'file:///workspace/subdir/test.css', getText: () => 'css content' };
+    const server = new StylelintServer(connectionMock, documentsMock);
 
+    // Setup workspace folders
     connectionMock.workspace.getWorkspaceFolders.resolves([{ uri: 'file:///workspace' }]);
-    pathIsInsideStub.returns(true);
 
-    // Mock existsSync to return true only for the nested ignore file
-    fsStub.existsSync.withArgs(path.join('/workspace/subdir', '.stylelintignore')).returns(true);
-    fsStub.existsSync.withArgs(path.join('/workspace', '.stylelintignore')).returns(false);
+    // Mock fs.access to find nested ignore file
+    fsPromisesStub.access.withArgs(path.join('/workspace/subdir', '.stylelintignore')).resolves();
+    fsPromisesStub.access.withArgs(path.join('/workspace', '.stylelintignore')).rejects(new Error('ENOENT'));
 
-    onDidChangeConfigurationHandler({ settings: { stylelint: {} } });
-    await onDidChangeContentHandler({ document });
+    const options = await server.resolveStylelintOptions('file:///workspace/subdir/test.css');
 
-    // New behavior: uses nested ignore file
-    assert.isTrue(stylelintVSCodeStub.calledWith(sinon.match.any, sinon.match({ ignorePath: path.join('/workspace/subdir', '.stylelintignore') })));
+    // Should use nested ignore file
+    assert.equal(options.ignorePath, path.join('/workspace/subdir', '.stylelintignore'));
   });
 
   it('should fallback to workspace root if no nested ignore exists', async () => {
-    const document = { uri: 'file:///workspace/subdir/test.css', getText: () => 'css content' };
+    const server = new StylelintServer(connectionMock, documentsMock);
 
+    // Setup workspace folders
     connectionMock.workspace.getWorkspaceFolders.resolves([{ uri: 'file:///workspace' }]);
-    pathIsInsideStub.returns(true);
 
-    // Mock existsSync to return false for all nested paths
+    // Mock fs.access to not find any nested ignore files
     fsPromisesStub.access.rejects(new Error('ENOENT'));
 
-    onDidChangeConfigurationHandler({ settings: { stylelint: {} } });
-    await onDidChangeContentHandler({ document });
+    const options = await server.resolveStylelintOptions('file:///workspace/subdir/test.css');
 
     // Should fallback to workspace root
-    assert.isTrue(stylelintVSCodeStub.calledWith(sinon.match.any, sinon.match({ ignorePath: path.join('/workspace', '.stylelintignore') })));
+    assert.equal(options.ignorePath, path.join('/workspace', '.stylelintignore'));
+  });
+
+  afterEach(() => {
+    if (processOnStub) {
+      processOnStub.restore();
+      processOnStub = null;
+    }
   });
 });
