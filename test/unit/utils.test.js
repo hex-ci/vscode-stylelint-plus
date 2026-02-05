@@ -2,7 +2,7 @@
 
 const path = require('path');
 const { assert } = require('chai');
-const { isRangeOverlap, generateTextEdits, generateTempFilename } = require('../../src/utils');
+const { isRangeOverlap, generateTextEdits, generateTempFilename, getExtensionFromLanguageId } = require('../../src/utils');
 
 describe('Utils', () => {
   describe('isRangeOverlap', () => {
@@ -123,6 +123,24 @@ describe('Utils', () => {
       const timestamp = parseInt(match[1], 10);
       assert.isAtLeast(timestamp, before);
       assert.isAtMost(timestamp, after);
+    });
+  });
+
+  describe('getExtensionFromLanguageId', () => {
+    it('should return correct extension for known languages', () => {
+      assert.equal(getExtensionFromLanguageId('css'), '.css');
+      assert.equal(getExtensionFromLanguageId('scss'), '.scss');
+      assert.equal(getExtensionFromLanguageId('sass'), '.sass');
+      assert.equal(getExtensionFromLanguageId('less'), '.less');
+      assert.equal(getExtensionFromLanguageId('html'), '.html');
+      assert.equal(getExtensionFromLanguageId('vue'), '.vue');
+      assert.equal(getExtensionFromLanguageId('javascript'), '.js');
+      assert.equal(getExtensionFromLanguageId('typescript'), '.ts');
+    });
+
+    it('should return .css for unknown languages', () => {
+      assert.equal(getExtensionFromLanguageId('unknown'), '.css');
+      assert.equal(getExtensionFromLanguageId('plaintext'), '.css');
     });
   });
 });

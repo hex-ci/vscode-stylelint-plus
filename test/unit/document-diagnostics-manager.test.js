@@ -39,6 +39,14 @@ describe('DocumentDiagnosticsManager', () => {
     assert.isFalse(manager.has('file:///test.css'));
   });
 
+  it('should not update lastAccessed when getting non-existent uri', () => {
+    // Get a non-existent uri
+    const result = manager.get('file:///nonexistent.css');
+
+    assert.isUndefined(result);
+    assert.isFalse(manager.lastAccessed.has('file:///nonexistent.css'));
+  });
+
   it('should cleanup old entries and keep recent ones', () => {
     manager.set('file:///old.css', []);
     clock.tick(600001);

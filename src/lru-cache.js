@@ -36,13 +36,20 @@ class LRUCache {
    * @param {any} value - Value to cache
    */
   set(key, value) {
+    if (this.maxSize <= 0) {
+      return;
+    }
+
     if (this.cache.has(key)) {
       this.cache.delete(key);
-    } else if (this.cache.size >= this.maxSize) {
+    }
+    else if (this.cache.size >= this.maxSize) {
       // Delete oldest entry
       const firstKey = this.cache.keys().next().value;
+
       this.cache.delete(firstKey);
     }
+
     this.cache.set(key, value);
   }
 

@@ -17,7 +17,7 @@ const findPkgDir = require('find-pkg-dir');
 const parseUri = require('vscode-uri').URI.parse;
 const stylelintVSCode = require('./stylelint-vscode');
 const loadStylelint = require('./load-stylelint');
-const { isRangeOverlap, generateTextEdits, generateTempFilename } = require('./utils');
+const { isRangeOverlap, generateTextEdits, generateTempFilename, getExtensionFromLanguageId } = require('./utils');
 const LRUCache = require('./lru-cache');
 const DocumentDiagnosticsManager = require('./document-diagnostics-manager');
 const DiagnosticsBatcher = require('./diagnostics-batcher');
@@ -76,6 +76,10 @@ class StylelintServer {
     // Failed temp file cleanup list
     this.failedTempFiles = [];
 
+    // Bound error handlers for cleanup
+    this.boundUnhandledRejection = null;
+    this.boundUncaughtException = null;
+
     // Setup global error handlers
     this.setupErrorHandlers();
   }
@@ -85,15 +89,18 @@ class StylelintServer {
    * @private
    */
   setupErrorHandlers() {
-    process.on('unhandledRejection', (reason, promise) => {
+    this.boundUnhandledRejection = (reason, promise) => {
       this.connection.console.error(`Unhandled Rejection at: ${promise}, reason: ${reason}`);
-    });
+    };
 
-    process.on('uncaughtException', (error) => {
-      this.connection.console.error(`Uncaught Exception: ${error.stack}`);
+    this.boundUncaughtException = (error) => {
+      this.connection.console.error(`Uncaught Exception: ${error?.stack || String(error)}`);
       this.isShuttingDown = true;
       this.dispose();
-    });
+    };
+
+    process.on('unhandledRejection', this.boundUnhandledRejection);
+    process.on('uncaughtException', this.boundUncaughtException);
   }
 
   /**
@@ -125,7 +132,9 @@ class StylelintServer {
    * @param {string} context - Error context (e.g., 'validation', 'autofix')
    */
   handleStylelintError(err, context) {
-    this.connection.console.error(`stylelint ${context} error: ${err.stack}`);
+    const stack = err?.stack || String(err);
+
+    this.connection.console.error(`stylelint ${context} error: ${stack}`);
     this.safeNotification('setStatusBarError');
 
     if (this.disableErrorMessage) {
@@ -140,11 +149,11 @@ class StylelintServer {
     }
 
     if (err.code === STYLELINT_ERROR_CODE_CONFIG) {
-      this.connection.window.showErrorMessage(`stylelint: ${err.message}`);
+      this.connection.window.showErrorMessage(`stylelint: ${err.message || 'Configuration error'}`);
       return;
     }
 
-    this.connection.window.showErrorMessage(err.stack.replace(/\n/ug, ' '));
+    this.connection.window.showErrorMessage(stack.replace(/\n/ug, ' '));
   }
 
   /**
@@ -159,11 +168,16 @@ class StylelintServer {
     }
 
     const docUri = parseUri(documentUri);
+    const docUriStr = docUri.toString();
 
     return folders
-      .filter(folder =>
-        docUri.toString().startsWith(parseUri(folder.uri).toString())
-      )
+      .filter(folder => {
+        const folderUriStr = parseUri(folder.uri).toString();
+        // Ensure folder URI ends with / for proper prefix matching
+        const folderPrefix = folderUriStr.endsWith('/') ? folderUriStr : folderUriStr + '/';
+
+        return docUriStr === folderUriStr || docUriStr.startsWith(folderPrefix);
+      })
       .sort((a, b) => b.uri.length - a.uri.length)[0];
   }
 
@@ -250,7 +264,7 @@ class StylelintServer {
 
     const folders = await this.getWorkspaceFolders();
 
-    const workspace = this.getWorkspaceForDocument(documentPath, folders);
+    const workspace = this.getWorkspaceForDocument(documentUri, folders);
 
     if (workspace) {
       stopPath = parseUri(workspace.uri).fsPath;
@@ -381,8 +395,9 @@ class StylelintServer {
       }
 
       const documentPath = parseUri(document.uri).fsPath;
+      const isAbsolutePath = documentPath && require('path').isAbsolute(documentPath);
 
-      if (documentPath) {
+      if (isAbsolutePath) {
         const folders = await this.getWorkspaceFolders();
 
         const workspace = this.getWorkspaceForDocument(document.uri, folders);
@@ -418,6 +433,45 @@ class StylelintServer {
           this.detectedStylelintVersion = versionInfo.version;
           this.isUsingLocal = versionInfo.isLocal;
         }
+      }
+      else {
+        // Untitled document: try to use workspace as cwd for config lookup
+        const folders = await this.getWorkspaceFolders();
+
+        if (folders && folders.length > 0) {
+          options.cwd = parseUri(folders[0].uri).fsPath;
+
+          if (this.useLocal) {
+            const localPath = join(options.cwd, 'node_modules', 'stylelint');
+
+            try {
+              await fsPromises.access(localPath);
+              options.path = localPath;
+
+              const versionInfo = await this.getVersionInfo(localPath);
+              this.detectedStylelintVersion = versionInfo.version;
+              this.isUsingLocal = true;
+            }
+            catch {
+              const versionInfo = await this.getVersionInfo(null);
+              this.detectedStylelintVersion = versionInfo.version;
+              this.isUsingLocal = false;
+            }
+          }
+          else {
+            const versionInfo = await this.getVersionInfo(null);
+            this.detectedStylelintVersion = versionInfo.version;
+            this.isUsingLocal = false;
+          }
+        }
+        else {
+          // No workspace: use bundled stylelint
+          const versionInfo = await this.getVersionInfo(null);
+          this.detectedStylelintVersion = versionInfo.version;
+          this.isUsingLocal = false;
+        }
+
+        this.safeNotification('setStatusBarOk');
       }
 
       // Check if cancelled before proceeding
@@ -486,7 +540,7 @@ class StylelintServer {
       }
       catch (err) {
         if (i === maxRetries - 1) {
-          this.connection.console.error(`Failed to delete temp file ${filePath} after ${maxRetries} attempts: ${err.message}`);
+          this.connection.console.error(`Failed to delete temp file ${filePath} after ${maxRetries} attempts: ${err?.message || String(err)}`);
           this.failedTempFiles.push(filePath);
           return false;
         }
@@ -495,6 +549,7 @@ class StylelintServer {
       }
     }
 
+    return false;
   }
 
   /**
@@ -530,20 +585,19 @@ class StylelintServer {
 
     try {
       const documentPath = parseUri(document.uri).fsPath;
+      const isAbsolutePath = documentPath && require('path').isAbsolute(documentPath);
       const options = {};
 
       if (this.config) {
-        if (Object.keys(this.config).length > 0) {
-          options.config = this.config;
-        }
+        options.config = this.config;
       }
 
       if (this.configOverrides) {
         options.configOverrides = this.configOverrides;
       }
 
-      if (documentPath) {
-        const {ignorePath, path: stylelintPath} = await this.resolveStylelintOptions(documentPath);
+      if (isAbsolutePath) {
+        const {ignorePath, path: stylelintPath} = await this.resolveStylelintOptions(document.uri);
 
         options.ignorePath = ignorePath;
 
@@ -557,24 +611,48 @@ class StylelintServer {
           options.path = stylelintPath;
         }
       }
+      else {
+        // Untitled document: try to use workspace for config lookup and local stylelint
+        const folders = await this.getWorkspaceFolders();
+
+        if (folders && folders.length > 0) {
+          options.cwd = parseUri(folders[0].uri).fsPath;
+
+          if (this.useLocal) {
+            const localPath = join(options.cwd, 'node_modules', 'stylelint');
+
+            try {
+              await fsPromises.access(localPath);
+              options.path = localPath;
+            }
+            catch {
+              // Local stylelint not found, use bundled
+            }
+          }
+        }
+      }
 
       const originalText = document.getText();
 
       const stylelintModule = await loadStylelint(options.path, {fallbackToBundled: true});
       const {lint} = stylelintModule;
 
-      if (options.path) {
-        try {
-          const pkgContent = await fsPromises.readFile(join(options.path, 'package.json'), 'utf8');
-          JSON.parse(pkgContent);
-        }
-        catch (_e) {
-          // Ignore package.json read errors
-        }
-      }
+      // Generate temp file path
+      let tempFile;
 
-      const codeFilename = parseUri(document.uri).fsPath;
-      const tempFile = generateTempFilename(codeFilename);
+      if (isAbsolutePath) {
+        tempFile = generateTempFilename(documentPath);
+      }
+      else {
+        // Untitled document: use workspace or system temp directory
+        const folders = await this.getWorkspaceFolders();
+        const baseDir = (folders && folders.length > 0)
+          ? parseUri(folders[0].uri).fsPath
+          : require('os').tmpdir();
+        const ext = getExtensionFromLanguageId(document.languageId);
+
+        tempFile = generateTempFilename(join(baseDir, `untitled${ext}`));
+      }
 
       let output;
 
@@ -597,7 +675,7 @@ class StylelintServer {
         output = await fsPromises.readFile(tempFile, 'utf8');
       }
       catch (err) {
-        this.connection.console.error(`Temp file strategy failed: ${err.message}`);
+        this.connection.console.error(`Temp file strategy failed: ${err?.message || String(err)}`);
         throw err;
       }
       finally {
@@ -621,14 +699,18 @@ class StylelintServer {
           isRangeOverlap(editItem.range, diagnostic.range, DIAGNOSTIC_OVERLAP_LINE_THRESHOLD, DIAGNOSTIC_OVERLAP_CHAR_THRESHOLD)
         );
 
+        if (targetEdits.length === 0) {
+          // No edits found for this specific diagnostic, skip
+          return;
+        }
+
         edit = {
           changes: {
             [uri]: targetEdits
           }
         };
       }
-
-      if (!edit) {
+      else {
         const lines = originalText.split('\n');
         const lastLine = lines.length - 1;
         const lastChar = lines[lastLine].length;
@@ -648,7 +730,7 @@ class StylelintServer {
 
       const applyResult = await this.connection.workspace.applyEdit(edit);
 
-      if (!applyResult.applied) {
+      if (!applyResult?.applied) {
         throw new Error('Failed to apply workspace edit');
       }
     }
@@ -662,7 +744,7 @@ class StylelintServer {
    */
   dispose() {
     // Clear all debounce timers
-    for (const [, timeoutId] of this.validateDebouncers) {
+    for (const timeoutId of this.validateDebouncers.values()) {
       clearTimeout(timeoutId);
     }
     this.validateDebouncers.clear();
@@ -678,6 +760,14 @@ class StylelintServer {
     this.versionCache.clear();
     this.workspaceCache = null;
     this.workspaceCacheTime = 0;
+
+    // Remove global error handlers
+    if (this.boundUnhandledRejection) {
+      process.removeListener('unhandledRejection', this.boundUnhandledRejection);
+    }
+    if (this.boundUncaughtException) {
+      process.removeListener('uncaughtException', this.boundUncaughtException);
+    }
 
     // Final cleanup of failed temp files
     this.retryFailedTempFiles();
@@ -696,8 +786,13 @@ function startServer() {
 
   // Code action handler
   connection.onCodeAction(async (params) => {
-    const {textDocument, context} = params;
-    const diagnostics = context.diagnostics;
+    const {textDocument, context} = params || {};
+
+    if (!textDocument || !context) {
+      return [];
+    }
+
+    const diagnostics = context.diagnostics || [];
     const codeActions = [];
 
     const stylelintDiagnostics = diagnostics.filter(d => d.source === 'stylelint');
@@ -706,7 +801,7 @@ function startServer() {
       return [];
     }
 
-    const { ruleMetadata } = server.documentDiagnostics.get(textDocument.uri) || {};
+    const { ruleMetadata = {} } = server.documentDiagnostics.get(textDocument.uri) || {};
 
     const fixableDiagnostics = stylelintDiagnostics.filter(diagnostic => {
       const rule = diagnostic.code;
@@ -741,7 +836,7 @@ function startServer() {
 
   // Execute autofix handler
   connection.onRequest('stylelint/executeAutofix', async (params) => {
-    const {uri, diagnostic} = params;
+    const {uri, diagnostic} = params || {};
 
     if (!uri || typeof uri !== 'string') {
       const errorMsg = 'Cannot execute autofix: Invalid document reference. Please ensure a valid file is open.';
@@ -768,12 +863,14 @@ function startServer() {
   });
 
   // Configuration change handler
-  connection.onDidChangeConfiguration(({settings}) => {
-    server.config = settings.stylelint.config;
-    server.configOverrides = settings.stylelint.configOverrides;
-    server.autoFixOnSave = settings.stylelint.autoFixOnSave;
-    server.useLocal = settings.stylelint.useLocal;
-    server.disableErrorMessage = settings.stylelint.disableErrorMessage;
+  connection.onDidChangeConfiguration((params) => {
+    const settings = params?.settings;
+    const stylelintSettings = settings?.stylelint || {};
+    server.config = stylelintSettings.config;
+    server.configOverrides = stylelintSettings.configOverrides;
+    server.autoFixOnSave = stylelintSettings.autoFixOnSave;
+    server.useLocal = stylelintSettings.useLocal;
+    server.disableErrorMessage = stylelintSettings.disableErrorMessage;
 
     server.validateAll();
   });

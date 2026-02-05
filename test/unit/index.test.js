@@ -50,6 +50,7 @@ describe('Extension Activation', () => {
         activeTextEditor: { document: { uri: 'file:///test.css' } }
       },
       StatusBarAlignment: { Right: 1 },
+      ThemeColor: function(id) { this.id = id; },
       ExtensionContext: sinon.stub()
     };
   });
@@ -160,6 +161,32 @@ describe('Extension Activation', () => {
     assert.isTrue(vscodeMock.window.showInformationMessage.calledWith(sinon.match('Please open a file')));
   });
 
+  it('should show message when extension is disabled', async () => {
+    const { activate } = proxyquire('../../src/index', {
+      'vscode': vscodeMock,
+      'vscode-languageclient': languageClientMock,
+      'path': { join: (...args) => args.join('/') }
+    });
+
+    const context = { subscriptions: [], asAbsolutePath: (p) => `/abs/${p}` };
+    activate(context);
+
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    const commandHandler = vscodeMock.commands.registerCommand.firstCall.args[1];
+
+    // Disable extension
+    vscodeMock.workspace.getConfiguration.returns({ get: sinon.stub().returns(false) });
+    vscodeMock.window.showInformationMessage = sinon.stub();
+
+    await commandHandler();
+
+    assert.isTrue(vscodeMock.window.showInformationMessage.calledWith(sinon.match('Stylelint is disabled')));
+
+    // Restore
+    vscodeMock.workspace.getConfiguration.returns({ get: sinon.stub().returns(true) });
+  });
+
   it('should handle unsupported language', async () => {
     const { activate } = proxyquire('../../src/index', {
       'vscode': vscodeMock,
@@ -228,6 +255,26 @@ describe('Extension Activation', () => {
     assert.isTrue(vscodeMock.window.showErrorMessage.calledWith(sinon.match('Stylelint fix failed')));
   });
 
+  it('should handle request failure without error message', async () => {
+    const { activate } = proxyquire('../../src/index', {
+      'vscode': vscodeMock,
+      'vscode-languageclient': languageClientMock,
+      'path': { join: (...args) => args.join('/') }
+    });
+
+    activate({ subscriptions: [] });
+    await new Promise(resolve => setTimeout(resolve, 0));
+    const commandHandler = vscodeMock.commands.registerCommand.firstCall.args[1];
+
+    vscodeMock.window.activeTextEditor.document.languageId = 'css';
+    vscodeMock.window.showErrorMessage = sinon.stub();
+    clientInstanceMock.sendRequest = sinon.stub().rejects({ code: 'UNKNOWN' });
+
+    await commandHandler();
+
+    assert.isTrue(vscodeMock.window.showErrorMessage.calledWith(sinon.match('Stylelint fix failed')));
+  });
+
   it('should update status bar', async () => {
     const { activate } = proxyquire('../../src/index', {
       'vscode': vscodeMock,
@@ -263,6 +310,10 @@ describe('Extension Activation', () => {
     assert.include(vscodeMock.window.createStatusBarItem().text, 'bundled v4.5.6');
     assert.include(vscodeMock.window.createStatusBarItem().tooltip, 'Using bundled stylelint 4.5.6');
 
+    // Test with undefined params
+    versionDetected(undefined);
+    // Should not crash, version info remains from previous call
+
     // Test error with version info
     setStatusBarError();
     assert.include(vscodeMock.window.createStatusBarItem().text, '$(error) Stylelint+');
@@ -289,6 +340,21 @@ describe('Extension Activation', () => {
     assert.equal(selector.length, 2);
     assert.deepEqual(selector[0], { language: 'css', scheme: 'file' });
     assert.deepEqual(selector[1], { language: 'css', scheme: 'untitled' });
+  });
+
+  it('should handle missing activationEvents in package.json', () => {
+    const { activate } = proxyquire('../../src/index', {
+      'vscode': vscodeMock,
+      'vscode-languageclient': languageClientMock,
+      'path': { join: (...args) => args.join('/') },
+      '../package.json': {}
+    });
+
+    // Should not throw
+    activate({ subscriptions: [] });
+
+    const clientOptions = languageClientMock.LanguageClient.firstCall.args[2];
+    assert.isArray(clientOptions.documentSelector);
   });
 
   // Note: Testing client === null is not feasible in the current architecture

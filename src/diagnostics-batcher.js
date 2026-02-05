@@ -49,10 +49,14 @@ class DiagnosticsBatcher {
    */
   flush() {
     this.timeoutId = null;
-    for (const [uri, diagnostics] of this.pending) {
+
+    const entries = [...this.pending.entries()];
+
+    this.pending.clear();
+
+    for (const [uri, diagnostics] of entries) {
       this.connection.sendDiagnostics({uri, diagnostics});
     }
-    this.pending.clear();
   }
 
   /**

@@ -126,6 +126,36 @@ describe('stylelintVSCode', () => {
 
     const fallbackResult = await stylelintVSCode(document);
     assert.deepEqual(fallbackResult, { diagnostics: [], ruleMetadata: buildRuleMetadata() });
+
+    // Test with missing invalidOptionWarnings and warnings properties
+    lintStub.resetBehavior();
+    lintStub.resolves({
+      results: [{}]
+    });
+
+    const missingPropsResult = await stylelintVSCode(document);
+    assert.deepEqual(missingPropsResult.diagnostics, []);
+  });
+
+  it('should return empty object when ruleMetadata is null', async () => {
+    const document = TextDocument.create('file:///test.css', 'css', 1, 'body {}');
+
+    // Simulate case where ruleMetadata is null (not undefined)
+    lintStub.resolves({
+      results: [{
+        invalidOptionWarnings: [],
+        warnings: [],
+        _postcssResult: {
+          stylelint: {
+            ruleMetadata: null
+          }
+        }
+      }]
+    });
+
+    const result = await stylelintVSCode(document);
+    // Should return {} instead of null to prevent null[rule] access errors
+    assert.deepEqual(result.ruleMetadata, {});
   });
 
   it('should throw if invalidOptionWarnings are present', async () => {
@@ -183,6 +213,31 @@ describe('stylelintVSCode', () => {
     assert.deepEqual(lintStub.getCall(4).args[0].config, config);
   });
 
+  it('should handle untitled document with relative path (e.g., Untitled-1)', async () => {
+    // This simulates the actual VS Code behavior where untitled documents have relative paths
+    const untitledDoc = TextDocument.create('untitled:Untitled-1', 'css', 1, 'body {}');
+    await stylelintVSCode(untitledDoc);
+
+    const callArgs = lintStub.firstCall.args[0];
+    assert.equal(callArgs.code, 'body {}');
+    // Should NOT set codeFilename for relative paths (would cause stylelint error)
+    assert.isUndefined(callArgs.codeFilename);
+    // Without cwd, should use empty config
+    assert.deepEqual(callArgs.config, { rules: {} });
+  });
+
+  it('should use config file lookup when cwd is provided for untitled document', async () => {
+    const untitledDoc = TextDocument.create('untitled:Untitled-1', 'css', 1, 'body {}');
+    // When cwd is provided, stylelint can find config files, so don't force empty config
+    await stylelintVSCode(untitledDoc, { cwd: '/workspace' });
+
+    const callArgs = lintStub.firstCall.args[0];
+    assert.equal(callArgs.code, 'body {}');
+    assert.equal(callArgs.cwd, '/workspace');
+    // Should NOT have empty config forced - let stylelint find config from cwd
+    assert.isUndefined(callArgs.config);
+  });
+
   it('should fallback to css syntax check on No configuration provided error', async () => {
     const document = TextDocument.create('file:///test.css', 'css', 1, 'body {}');
     const error = new Error('No configuration provided for /test.css');
@@ -212,6 +267,19 @@ describe('stylelintVSCode', () => {
       assert.fail('Should have thrown');
     } catch (err) {
       assert.equal(err.message, 'Other error');
+    }
+  });
+
+  it('should rethrow errors without message property', async () => {
+    const document = TextDocument.create('file:///test.css', 'css', 1, 'body {}');
+    const error = { code: 'UNKNOWN' }; // Error without message
+    lintStub.rejects(error);
+
+    try {
+      await stylelintVSCode(document);
+      assert.fail('Should have thrown');
+    } catch (err) {
+      assert.equal(err.code, 'UNKNOWN');
     }
   });
 

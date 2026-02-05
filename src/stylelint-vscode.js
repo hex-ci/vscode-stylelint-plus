@@ -1,5 +1,6 @@
 'use strict';
 
+const path = require('path');
 const arrayToError = require('array-to-error');
 const at = require('lodash/at');
 const has = require('lodash/has');
@@ -57,7 +58,7 @@ function processResults(resultContainer) {
     };
   }
 
-  const [{invalidOptionWarnings, warnings}] = results;
+  const [{invalidOptionWarnings = [], warnings = []}] = results;
 
   if (invalidOptionWarnings.length !== 0) {
     throw arrayToError(map(invalidOptionWarnings, 'text'), SyntaxError);
@@ -65,7 +66,7 @@ function processResults(resultContainer) {
 
   return {
     diagnostics: warnings.map(stylelintWarningToVscodeDiagnostic),
-    ruleMetadata
+    ruleMetadata: ruleMetadata || {}
   };
 }
 
@@ -93,9 +94,10 @@ module.exports = async function stylelintVSCode(textDocument, options = {}) {
     formatter: stubString
   };
   const codeFilename = parseUri(textDocument.uri).fsPath;
+  const isAbsolutePath = codeFilename && path.isAbsolute(codeFilename);
   let resultContainer;
 
-  if (codeFilename) {
+  if (isAbsolutePath) {
     if (options.fix) {
       priorOptions.files = [codeFilename];
       priorOptions.allowEmptyInput = true;
@@ -121,7 +123,8 @@ module.exports = async function stylelintVSCode(textDocument, options = {}) {
       }
     }
 
-    if (!at(options, 'config.rules')[0]) {
+    // Only use empty config when there's no cwd (can't find config file) and no user-provided config
+    if (!options.cwd && !at(options, 'config.rules')[0]) {
       priorOptions.config = {rules: {}};
     }
   }
@@ -137,9 +140,11 @@ module.exports = async function stylelintVSCode(textDocument, options = {}) {
     });
   }
   catch (err) {
+    const message = err?.message || '';
+
     if (
-      err.message.startsWith('No configuration provided for') ||
-      err.message.includes('No rules found within configuration')
+      message.startsWith('No configuration provided for') ||
+      message.includes('No rules found within configuration')
     ) {
       // Check only CSS syntax errors without applying any stylelint rules
       return processResults(await lint({

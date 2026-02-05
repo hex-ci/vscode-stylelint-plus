@@ -8,10 +8,9 @@ const {
   workspace,
   window,
   StatusBarAlignment,
-  ThemeColor,
   commands
 } = require('vscode');
-const {activationEvents} = require('../package.json');
+const {activationEvents = []} = require('../package.json');
 
 const DEBUG_PORT = 6004;
 
@@ -50,8 +49,6 @@ const setStatusBar = (status = 'ok') => {
       ? `Using ${source} stylelint ${versionInfo.version}`
       : 'Stylelint+ server is running.'
     : 'Stylelint+ server stopped.';
-
-  statusBarItem.backgroundColor = ThemeColor;
 
   statusBarItem.show();
 };
@@ -114,7 +111,9 @@ module.exports.activate = ({subscriptions}) => {
         setStatusBar('ok');
       });
 
-      client.onNotification('stylelint/versionDetected', ({version, isLocal}) => {
+      client.onNotification('stylelint/versionDetected', (params) => {
+        const {version, isLocal} = params || {};
+
         versionInfo.version = version;
         versionInfo.isLocal = isLocal;
 
@@ -128,6 +127,14 @@ module.exports.activate = ({subscriptions}) => {
 
   subscriptions.push(
     commands.registerCommand('stylelint.executeAutofix', async (uriArg, diagnosticArg) => {
+      const enabled = workspace.getConfiguration('stylelint').get('enable');
+
+      if (!enabled) {
+        window.showInformationMessage('Stylelint is disabled. Enable it in settings to use this command.');
+
+        return;
+      }
+
       await client.onReady();
 
       let uri = uriArg;
@@ -168,7 +175,7 @@ module.exports.activate = ({subscriptions}) => {
         await client.sendRequest('stylelint/executeAutofix', {uri, diagnostic});
       }
       catch (err) {
-        window.showErrorMessage(`Stylelint fix failed: ${err.message}`);
+        window.showErrorMessage(`Stylelint fix failed: ${err?.message || String(err)}`);
       }
     })
   );

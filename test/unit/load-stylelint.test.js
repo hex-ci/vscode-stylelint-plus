@@ -135,8 +135,16 @@ describe('loadStylelint', () => {
       await loadStylelint('/some/path');
       assert.fail('Should have thrown');
     } catch (err) {
-      assert.instanceOf(err, SyntaxError);
+      assert.include(err.message, 'Invalid JSON');
     }
+
+    // Test fallbackToBundled with invalid JSON
+    fsPromisesStub.readFile.reset();
+    fsPromisesStub.readFile.withArgs(pkgJsonPath, 'utf8')
+      .resolves('{ invalid json }');
+
+    const fallbackResult = await loadStylelint('/some/path', { fallbackToBundled: true });
+    assert.equal(fallbackResult.version, '15.0.0');
 
     fsPromisesStub.readFile.reset();
     fsPromisesStub.readFile.rejects(new Error('Read error'));
@@ -159,6 +167,13 @@ describe('loadStylelint', () => {
       const result = await loadStylelint(modulePath);
       assert.equal(result.version, '15.0.0', version);
     }
+
+    // Test missing version field
+    fsPromisesStub.access.resolves();
+    stubPkgJson({ main: 'index.js' }); // no version field
+
+    const resultNoVersion = await loadStylelint(modulePath);
+    assert.equal(resultNoVersion.version, '15.0.0');
   });
 
   it('should support options and modulePath variants', async () => {

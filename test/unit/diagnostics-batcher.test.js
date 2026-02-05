@@ -72,4 +72,30 @@ describe('DiagnosticsBatcher', () => {
     emptyBatcher.dispose();
     assert.strictEqual(connectionMock.sendDiagnostics.callCount, 1);
   });
+
+  it('should clear pending before sending to avoid duplicate sends on error', () => {
+    const diagnostics1 = [{ message: 'error1' }];
+    const diagnostics2 = [{ message: 'error2' }];
+
+    batcher.add('file:///test1.css', diagnostics1);
+    batcher.add('file:///test2.css', diagnostics2);
+
+    // Make sendDiagnostics throw on first call
+    connectionMock.sendDiagnostics.onFirstCall().throws(new Error('Connection error'));
+
+    // Flush should clear pending before iterating
+    try {
+      batcher.flush();
+    } catch {
+      // Expected error
+    }
+
+    // Pending should be cleared even though error was thrown
+    assert.strictEqual(batcher.pending.size, 0);
+
+    // Second flush should not resend anything
+    batcher.flush();
+    // Only 1 call (the one that threw), not 2
+    assert.strictEqual(connectionMock.sendDiagnostics.callCount, 1);
+  });
 });

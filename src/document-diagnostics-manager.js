@@ -36,8 +36,13 @@ class DocumentDiagnosticsManager {
    * @returns {Object|undefined} diagnostics or undefined
    */
   get(uri) {
-    this.lastAccessed.set(uri, Date.now());
-    return this.diagnostics.get(uri);
+    const value = this.diagnostics.get(uri);
+
+    if (value !== undefined) {
+      this.lastAccessed.set(uri, Date.now());
+    }
+
+    return value;
   }
 
   /**

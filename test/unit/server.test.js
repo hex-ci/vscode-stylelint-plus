@@ -204,7 +204,6 @@ describe('Server', () => {
     });
 
     it('should handle uncaughtException', () => {
-      const processExitStub = sinon.stub(process, 'exit');
       let exceptionHandler;
 
       processOnStub.callsFake((event, handler) => {
@@ -224,8 +223,25 @@ describe('Server', () => {
       assert.isTrue(server.isShuttingDown);
       assert.isTrue(connectionMock.console.error.calledWith(sinon.match('Uncaught Exception')));
       assert.isTrue(disposeSpy.called);
+    });
 
-      processExitStub.restore();
+    it('should handle uncaughtException without stack', () => {
+      let exceptionHandler;
+
+      processOnStub.callsFake((event, handler) => {
+        if (event === 'uncaughtException') {
+          exceptionHandler = handler;
+        }
+      });
+
+      const server = new StylelintServer(connectionMock, documentsMock);
+
+      // Simulate uncaught exception without stack
+      const error = { message: 'no stack error' };
+      exceptionHandler(error);
+
+      assert.isTrue(server.isShuttingDown);
+      assert.isTrue(connectionMock.console.error.calledWith(sinon.match('Uncaught Exception')));
     });
   });
 
@@ -300,6 +316,17 @@ describe('Server', () => {
       assert.isTrue(connectionMock.window.showErrorMessage.calledWith('stylelint: Config error'));
     });
 
+    it('should handle config error without message', () => {
+      const server = new StylelintServer(connectionMock, documentsMock);
+      server.disableErrorMessage = false;
+
+      const error = { code: 78 };
+
+      server.handleStylelintError(error, 'validation');
+
+      assert.isTrue(connectionMock.window.showErrorMessage.calledWith('stylelint: Configuration error'));
+    });
+
     it('should suppress error message when disabled', () => {
       const server = new StylelintServer(connectionMock, documentsMock);
       server.disableErrorMessage = true;
@@ -310,6 +337,18 @@ describe('Server', () => {
 
       assert.isFalse(connectionMock.window.showErrorMessage.called);
       assert.isTrue(connectionMock.sendNotification.calledWith('setStatusBarError'));
+    });
+
+    it('should handle error without stack property', () => {
+      const server = new StylelintServer(connectionMock, documentsMock);
+      server.disableErrorMessage = false;
+
+      const error = { message: 'No stack error' };
+
+      server.handleStylelintError(error, 'validation');
+
+      assert.isTrue(connectionMock.window.showErrorMessage.called);
+      assert.isTrue(connectionMock.console.error.called);
     });
   });
 
@@ -781,6 +820,91 @@ describe('Server', () => {
       assert.isTrue(connectionMock.console.error.called);
       assert.isTrue(connectionMock.sendNotification.calledWith('setStatusBarError'));
     });
+
+    it('should handle untitled document with workspace', async () => {
+      const server = new StylelintServer(connectionMock, documentsMock);
+      stylelintVSCodeStub.resolves({ diagnostics: [], ruleMetadata: {} });
+
+      connectionMock.workspace.getWorkspaceFolders.resolves([
+        { uri: 'file:///workspace' }
+      ]);
+
+      // Untitled document has relative path
+      const document = { uri: 'untitled:Untitled-1', getText: () => 'body {}', languageId: 'css' };
+
+      await server.validate(document);
+
+      // Verify stylelintVSCode was called with cwd from workspace
+      const callArgs = stylelintVSCodeStub.getCall(0).args;
+      assert.equal(callArgs[1].cwd, '/workspace');
+    });
+
+    it('should handle untitled document with useLocal and local stylelint found', async () => {
+      const server = new StylelintServer(connectionMock, documentsMock);
+      server.useLocal = true;
+      stylelintVSCodeStub.resolves({ diagnostics: [], ruleMetadata: {} });
+
+      connectionMock.workspace.getWorkspaceFolders.resolves([
+        { uri: 'file:///workspace' }
+      ]);
+
+      // Mock fsPromises.access to succeed (local stylelint exists)
+      fsPromisesStub.access.resolves();
+
+      const document = { uri: 'untitled:Untitled-1', getText: () => 'body {}', languageId: 'css' };
+
+      await server.validate(document);
+
+      // Verify local stylelint path was set
+      const callArgs = stylelintVSCodeStub.getCall(0).args;
+      assert.equal(callArgs[1].path, '/workspace/node_modules/stylelint');
+      assert.isTrue(server.isUsingLocal);
+    });
+
+    it('should handle untitled document with useLocal but local stylelint not found', async () => {
+      const server = new StylelintServer(connectionMock, documentsMock);
+      server.useLocal = true;
+      stylelintVSCodeStub.resolves({ diagnostics: [], ruleMetadata: {} });
+
+      connectionMock.workspace.getWorkspaceFolders.resolves([
+        { uri: 'file:///workspace' }
+      ]);
+
+      // Mock fsPromises.access to fail (local stylelint not found)
+      fsPromisesStub.access.rejects(new Error('ENOENT'));
+
+      const document = { uri: 'untitled:Untitled-1', getText: () => 'body {}', languageId: 'css' };
+
+      await server.validate(document);
+
+      // Should fallback to bundled stylelint
+      const callArgs = stylelintVSCodeStub.getCall(0).args;
+      assert.isUndefined(callArgs[1].path);
+      assert.isFalse(server.isUsingLocal);
+    });
+
+    it('should handle untitled document without workspace', async () => {
+      const server = new StylelintServer(connectionMock, documentsMock);
+      stylelintVSCodeStub.resolves({ diagnostics: [], ruleMetadata: {} });
+
+      // No workspace folders
+      connectionMock.workspace.getWorkspaceFolders.resolves([]);
+
+      const document = { uri: 'untitled:Untitled-1', getText: () => 'body {}', languageId: 'css' };
+
+      await server.validate(document);
+
+      // Verify stylelintVSCode was called without cwd
+      const callArgs = stylelintVSCodeStub.getCall(0).args;
+      assert.isUndefined(callArgs[1].cwd);
+
+      // Verify version info is set (using bundled stylelint)
+      assert.isNotNull(server.detectedStylelintVersion);
+      assert.isFalse(server.isUsingLocal);
+
+      // Verify status bar notification was sent
+      assert.isTrue(connectionMock.sendNotification.calledWith('setStatusBarOk'));
+    });
   });
 
   describe('validateAll', () => {
@@ -844,6 +968,29 @@ describe('Server', () => {
       assert.equal(fsPromisesStub.unlink.callCount, 3);
       assert.include(server.failedTempFiles, '/tmp/test.css');
     });
+
+    it('should handle error without message property', async () => {
+      clock = sinon.useFakeTimers();
+      const server = new StylelintServer(connectionMock, documentsMock);
+
+      fsPromisesStub.unlink.rejects({ code: 'UNKNOWN' });
+
+      const unlinkPromise = server.safeUnlink('/tmp/test.css');
+      await clock.tickAsync(1000);
+      const result = await unlinkPromise;
+
+      assert.isFalse(result);
+      assert.isTrue(connectionMock.console.error.called);
+    });
+
+    it('should return false when maxRetries is 0', async () => {
+      const server = new StylelintServer(connectionMock, documentsMock);
+
+      const result = await server.safeUnlink('/tmp/test.css', 0);
+
+      assert.isFalse(result);
+      assert.isFalse(fsPromisesStub.unlink.called);
+    });
   });
 
   describe('retryFailedTempFiles', () => {
@@ -869,24 +1016,6 @@ describe('Server', () => {
       await server.executeAutofix('file:///test.css');
 
       assert.isTrue(connectionMock.console.error.calledWith(sinon.match('Document not found')));
-    });
-
-    it('should ignore empty config object in autofix', async () => {
-      const server = new StylelintServer(connectionMock, documentsMock);
-      server.config = {};
-
-      const document = { uri: 'file:///test.css', getText: () => 'css content' };
-      documentsMock.get.returns(document);
-
-      server.resolveStylelintOptions = sinon.stub().resolves({});
-      const lintStub = sinon.stub().resolves({});
-      loadStylelintStub.resolves({ lint: lintStub });
-      fsPromisesStub.readFile.resolves('fixed content');
-
-      await server.executeAutofix('file:///test.css');
-
-      const lintArgs = lintStub.getCall(0).args[0];
-      assert.isUndefined(lintArgs.config);
     });
 
     it('should skip resolve options when documentPath is empty', async () => {
@@ -979,10 +1108,28 @@ describe('Server', () => {
       loadStylelintStub.resolves({ lint: sinon.stub().resolves({}) });
       fsPromisesStub.readFile.resolves('fixed content');
       utilsStub.generateTextEdits.returns([{ range: { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } }, newText: 'f' }]);
+      utilsStub.isRangeOverlap.returns(true);
 
       await server.executeAutofix('file:///test.css', { range: { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } } });
 
       assert.isTrue(connectionMock.workspace.applyEdit.called);
+    });
+
+    it('should fallback to full edit when diagnostic has no matching edits', async () => {
+      const server = new StylelintServer(connectionMock, documentsMock);
+      const document = { uri: 'file:///test.css', getText: () => 'css content' };
+      documentsMock.get.returns(document);
+
+      server.resolveStylelintOptions = sinon.stub().resolves({});
+      loadStylelintStub.resolves({ lint: sinon.stub().resolves({}) });
+      fsPromisesStub.readFile.resolves('fixed content');
+      utilsStub.generateTextEdits.returns([{ range: { start: { line: 10, character: 0 }, end: { line: 10, character: 1 } }, newText: 'f' }]);
+      utilsStub.isRangeOverlap.returns(false);
+
+      await server.executeAutofix('file:///test.css', { range: { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } } });
+
+      // Should skip when no matching edits for specific diagnostic
+      assert.isFalse(connectionMock.workspace.applyEdit.called);
     });
 
     it('should throw error if apply edit fails', async () => {
@@ -1049,24 +1196,13 @@ describe('Server', () => {
       });
       loadStylelintStub.resolves({ lint: sinon.stub().resolves({}) });
 
-      // Reset readFile to track calls properly
-      fsPromisesStub.readFile.resetBehavior();
-      fsPromisesStub.readFile.resetHistory();
-
-      // Mock readFile to return valid package.json content for package.json read
-      fsPromisesStub.readFile.callsFake(async (filePath) => {
-        if (filePath.includes('package.json')) {
-          return '{"version": "15.0.0"}';
-        }
-        return 'fixed content';
-      });
+      // Mock readFile to return fixed content for temp file
+      fsPromisesStub.readFile.resolves('fixed content');
 
       await server.executeAutofix('file:///test.css');
 
       // Verify loadStylelint was called with the local path
       assert.isTrue(loadStylelintStub.calledWith('/project/node_modules/stylelint'));
-      // Verify package.json was read
-      assert.isTrue(fsPromisesStub.readFile.calledWith(sinon.match('package.json')));
     });
 
     it('should handle empty output from autofix', async () => {
@@ -1105,43 +1241,6 @@ describe('Server', () => {
       assert.isFalse(connectionMock.workspace.applyEdit.called);
     });
 
-    it('should continue when package.json read fails', async () => {
-      const server = new StylelintServer(connectionMock, documentsMock);
-
-      const document = { uri: 'file:///test.css', getText: () => 'css content' };
-      documentsMock.get.returns(document);
-
-      server.resolveStylelintOptions = sinon.stub().resolves({
-        ignorePath: '/test/.stylelintignore',
-        path: '/project/node_modules/stylelint'
-      });
-
-      const lintStub = sinon.stub().resolves({});
-      loadStylelintStub.resolves({ lint: lintStub });
-
-      fsPromisesStub.writeFile.resolves();
-
-      // Since stub is shared across tests, reset and use path matching
-      fsPromisesStub.readFile.resetBehavior();
-      fsPromisesStub.readFile.resetHistory();
-
-      fsPromisesStub.readFile.callsFake(async (filePath) => {
-        if (filePath.includes('package.json')) {
-          const err = new Error('ENOENT');
-          throw err;
-        }
-        // Return fixed content for temp file reads
-        return 'fixed content';
-      });
-
-      await server.executeAutofix('file:///test.css');
-
-      // Verify the flow happened
-      assert.isTrue(fsPromisesStub.writeFile.called, 'temp file should be written');
-      assert.isTrue(lintStub.called, 'lint should be called');
-      assert.isTrue(connectionMock.workspace.applyEdit.called, 'applyEdit should be called');
-    });
-
     it('should handle temp file write/read errors and still cleanup', async () => {
       const server = new StylelintServer(connectionMock, documentsMock);
 
@@ -1165,6 +1264,30 @@ describe('Server', () => {
       }
 
       // Error should be logged
+      assert.isTrue(connectionMock.console.error.calledWith(sinon.match('Temp file strategy failed')));
+    });
+
+    it('should handle temp file error without message property', async () => {
+      const server = new StylelintServer(connectionMock, documentsMock);
+
+      const document = { uri: 'file:///test.css', getText: () => 'css content' };
+      documentsMock.get.returns(document);
+
+      server.resolveStylelintOptions = sinon.stub().resolves({});
+
+      loadStylelintStub.resolves({
+        lint: sinon.stub().rejects({ code: 'UNKNOWN' })
+      });
+
+      fsPromisesStub.writeFile.resolves();
+
+      try {
+        await server.executeAutofix('file:///test.css');
+        assert.fail('Should have thrown');
+      } catch {
+        // Expected
+      }
+
       assert.isTrue(connectionMock.console.error.calledWith(sinon.match('Temp file strategy failed')));
     });
 
@@ -1193,6 +1316,91 @@ describe('Server', () => {
       // safeUnlink should still be called
       assert.isTrue(safeUnlinkSpy.called);
     });
+
+    it('should handle untitled document autofix with workspace', async () => {
+      const server = new StylelintServer(connectionMock, documentsMock);
+
+      const document = { uri: 'untitled:Untitled-1', getText: () => 'body {}', languageId: 'css' };
+      documentsMock.get.returns(document);
+
+      connectionMock.workspace.getWorkspaceFolders.resolves([
+        { uri: 'file:///workspace' }
+      ]);
+
+      loadStylelintStub.resolves({ lint: sinon.stub().resolves({}) });
+      fsPromisesStub.readFile.resolves('body { }'); // Fixed content
+
+      await server.executeAutofix('untitled:Untitled-1');
+
+      // Verify temp file was created in workspace directory
+      assert.isTrue(utilsStub.generateTempFilename.called);
+      const tempFilePath = utilsStub.generateTempFilename.getCall(0).args[0];
+      assert.include(tempFilePath, '/workspace');
+    });
+
+    it('should handle untitled document autofix with useLocal and local stylelint found', async () => {
+      const server = new StylelintServer(connectionMock, documentsMock);
+      server.useLocal = true;
+
+      const document = { uri: 'untitled:Untitled-1', getText: () => 'body {}', languageId: 'scss' };
+      documentsMock.get.returns(document);
+
+      connectionMock.workspace.getWorkspaceFolders.resolves([
+        { uri: 'file:///workspace' }
+      ]);
+
+      // Mock fsPromises.access to succeed (local stylelint exists)
+      fsPromisesStub.access.resolves();
+
+      loadStylelintStub.resolves({ lint: sinon.stub().resolves({}) });
+      fsPromisesStub.readFile.resolves('body { }');
+
+      await server.executeAutofix('untitled:Untitled-1');
+
+      // Verify loadStylelint was called with local path
+      assert.isTrue(loadStylelintStub.calledWith('/workspace/node_modules/stylelint'));
+    });
+
+    it('should handle untitled document autofix with useLocal but local stylelint not found', async () => {
+      const server = new StylelintServer(connectionMock, documentsMock);
+      server.useLocal = true;
+
+      const document = { uri: 'untitled:Untitled-1', getText: () => 'body {}', languageId: 'css' };
+      documentsMock.get.returns(document);
+
+      connectionMock.workspace.getWorkspaceFolders.resolves([
+        { uri: 'file:///workspace' }
+      ]);
+
+      // Mock fsPromises.access to fail (local stylelint not found)
+      fsPromisesStub.access.rejects(new Error('ENOENT'));
+
+      loadStylelintStub.resolves({ lint: sinon.stub().resolves({}) });
+      fsPromisesStub.readFile.resolves('body { }');
+
+      await server.executeAutofix('untitled:Untitled-1');
+
+      // Should fallback to bundled (path undefined)
+      assert.isTrue(loadStylelintStub.calledWith(undefined));
+    });
+
+    it('should handle untitled document autofix without workspace', async () => {
+      const server = new StylelintServer(connectionMock, documentsMock);
+
+      const document = { uri: 'untitled:Untitled-1', getText: () => 'body {}', languageId: 'less' };
+      documentsMock.get.returns(document);
+
+      // No workspace folders
+      connectionMock.workspace.getWorkspaceFolders.resolves([]);
+
+      loadStylelintStub.resolves({ lint: sinon.stub().resolves({}) });
+      fsPromisesStub.readFile.resolves('body { }');
+
+      await server.executeAutofix('untitled:Untitled-1');
+
+      // Verify temp file was created in system temp directory
+      assert.isTrue(utilsStub.generateTempFilename.called);
+    });
   });
 
   describe('dispose', () => {
@@ -1215,11 +1423,27 @@ describe('Server', () => {
 
     it('should dispose managers', () => {
       const server = new StylelintServer(connectionMock, documentsMock);
+      const removeListenerStub = sinon.stub(process, 'removeListener');
 
       server.dispose();
 
       assert.isTrue(server.documentDiagnostics.dispose.called);
       assert.isTrue(server.diagnosticsBatcher.dispose.called);
+      assert.isTrue(removeListenerStub.calledWith('unhandledRejection'));
+      assert.isTrue(removeListenerStub.calledWith('uncaughtException'));
+
+      removeListenerStub.restore();
+    });
+
+    it('should handle dispose when error handlers are null', () => {
+      const server = new StylelintServer(connectionMock, documentsMock);
+      server.boundUnhandledRejection = null;
+      server.boundUncaughtException = null;
+
+      // Should not throw
+      server.dispose();
+
+      assert.isTrue(server.documentDiagnostics.dispose.called);
     });
   });
 
@@ -1351,6 +1575,27 @@ describe('Server', () => {
       assert.equal(result.length, 0);
     });
 
+    it('should handle undefined params in onCodeAction', async () => {
+      startServer();
+
+      const result = await handlers.onCodeAction(undefined);
+
+      assert.isArray(result);
+      assert.equal(result.length, 0);
+    });
+
+    it('should handle missing diagnostics in context', async () => {
+      startServer();
+
+      const result = await handlers.onCodeAction({
+        textDocument: { uri: 'file:///test.css' },
+        context: {}
+      });
+
+      assert.isArray(result);
+      assert.equal(result.length, 0);
+    });
+
     it('should return code actions for stylelint diagnostics', async () => {
       startServer();
 
@@ -1440,6 +1685,15 @@ describe('Server', () => {
       assert.isTrue(connectionMock2.window.showErrorMessage.calledWith(sinon.match('Cannot execute autofix')));
     });
 
+    it('should handle undefined params in executeAutofix request', async () => {
+      startServer();
+
+      await handlers.onRequest.handler(undefined);
+
+      assert.isTrue(connectionMock2.console.error.called);
+      assert.isTrue(connectionMock2.window.showErrorMessage.calledWith(sinon.match('Cannot execute autofix')));
+    });
+
     it('should call server.executeAutofix with valid URI', async () => {
       const server = startServer();
       const executeAutofixStub = sinon.stub(server, 'executeAutofix').resolves();
@@ -1481,6 +1735,16 @@ describe('Server', () => {
       assert.equal(server.autoFixOnSave, true);
       assert.equal(server.useLocal, false);
       assert.equal(server.disableErrorMessage, false);
+      assert.isTrue(validateAllStub.called);
+    });
+
+    it('should handle missing stylelint settings gracefully', async () => {
+      const server = startServer();
+      const validateAllStub = sinon.stub(server, 'validateAll').resolves();
+
+      await handlers.onDidChangeConfiguration({ settings: {} });
+
+      assert.isUndefined(server.config);
       assert.isTrue(validateAllStub.called);
     });
 

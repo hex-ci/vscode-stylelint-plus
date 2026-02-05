@@ -71,8 +71,31 @@ function generateTempFilename(originalPath) {
   );
 }
 
+const LANGUAGE_TO_EXTENSION = new Map([
+  ['css', '.css'],
+  ['scss', '.scss'],
+  ['sass', '.sass'],
+  ['less', '.less'],
+  ['postcss', '.css'],
+  ['sugarss', '.sss'],
+  ['html', '.html'],
+  ['vue', '.vue'],
+  ['svelte', '.svelte'],
+  ['javascript', '.js'],
+  ['javascriptreact', '.jsx'],
+  ['typescript', '.ts'],
+  ['typescriptreact', '.tsx'],
+  ['markdown', '.md'],
+  ['xml', '.xml']
+]);
+
+function getExtensionFromLanguageId(languageId) {
+  return LANGUAGE_TO_EXTENSION.get(languageId) || '.css';
+}
+
 module.exports = {
   isRangeOverlap,
   generateTextEdits,
-  generateTempFilename
+  generateTempFilename,
+  getExtensionFromLanguageId
 };

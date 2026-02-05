@@ -52,4 +52,20 @@ describe('LRUCache', () => {
     assert.strictEqual(cache.get('key3'), 'value3');
     assert.strictEqual(cache.get('key4'), 'value4');
   });
+
+  it('should not cache anything when maxSize is 0', () => {
+    const zeroCache = new LRUCache(0);
+
+    zeroCache.set('key1', 'value1');
+    assert.strictEqual(zeroCache.size, 0);
+    assert.strictEqual(zeroCache.get('key1'), undefined);
+  });
+
+  it('should not cache anything when maxSize is negative', () => {
+    const negativeCache = new LRUCache(-1);
+
+    negativeCache.set('key1', 'value1');
+    assert.strictEqual(negativeCache.size, 0);
+    assert.strictEqual(negativeCache.get('key1'), undefined);
+  });
 });

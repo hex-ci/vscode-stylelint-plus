@@ -32,8 +32,20 @@ async function loadStylelint(modulePath, { fallbackToBundled = false } = {}) {
   }
 
   const pkgJsonContent = await fsPromises.readFile(pkgJsonPath, 'utf8');
-  const pkgJson = JSON.parse(pkgJsonContent);
-  const majorVersion = parseInt(pkgJson.version.split('.')[0]);
+  let pkgJson;
+
+  try {
+    pkgJson = JSON.parse(pkgJsonContent);
+  }
+  catch {
+    if (fallbackToBundled) {
+      return require('stylelint');
+    }
+    throw new Error(`Invalid JSON in ${pkgJsonPath}`);
+  }
+
+  const version = pkgJson.version || '0.0.0';
+  const majorVersion = parseInt(version.split('.')[0], 10);
 
   if (majorVersion >= 17) {
     let entryPoint;
