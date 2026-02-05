@@ -90,11 +90,11 @@ class StylelintServer {
    */
   setupErrorHandlers() {
     this.boundUnhandledRejection = (reason, promise) => {
-      this.connection.console.error(`Unhandled Rejection at: ${promise}, reason: ${reason}`);
+      this.connection.console.log(`Unhandled Rejection at: ${promise}, reason: ${reason}`);
     };
 
     this.boundUncaughtException = (error) => {
-      this.connection.console.error(`Uncaught Exception: ${error?.stack || String(error)}`);
+      this.connection.console.log(`Uncaught Exception: ${error?.stack || String(error)}`);
       this.isShuttingDown = true;
       this.dispose();
     };
@@ -134,7 +134,7 @@ class StylelintServer {
   handleStylelintError(err, context) {
     const stack = err?.stack || String(err);
 
-    this.connection.console.error(`stylelint ${context} error: ${stack}`);
+    this.connection.console.log(`stylelint ${context} error: ${stack}`);
     this.safeNotification('setStatusBarError');
 
     if (this.disableErrorMessage) {
@@ -415,7 +415,7 @@ class StylelintServer {
 
         if (this.useLocal) {
           if (!stylelintPath) {
-            this.connection.console.error('Local stylelint not found.');
+            this.connection.console.log('Local stylelint not found.');
             this.safeNotification('setStatusBarError');
 
             return;
@@ -540,7 +540,7 @@ class StylelintServer {
       }
       catch (err) {
         if (i === maxRetries - 1) {
-          this.connection.console.error(`Failed to delete temp file ${filePath} after ${maxRetries} attempts: ${err?.message || String(err)}`);
+          this.connection.console.log(`Failed to delete temp file ${filePath} after ${maxRetries} attempts: ${err?.message || String(err)}`);
           this.failedTempFiles.push(filePath);
           return false;
         }
@@ -578,7 +578,7 @@ class StylelintServer {
     const document = this.documents.get(uri);
 
     if (!document) {
-      this.connection.console.error(`Document not found for URI: ${uri}`);
+      this.connection.console.log(`Document not found for URI: ${uri}`);
 
       return;
     }
@@ -603,7 +603,7 @@ class StylelintServer {
 
         if (this.useLocal) {
           if (!stylelintPath) {
-            this.connection.console.error('Local stylelint not found.');
+            this.connection.console.log('Local stylelint not found.');
             this.safeNotification('setStatusBarError');
 
             return;
@@ -675,7 +675,7 @@ class StylelintServer {
         output = await fsPromises.readFile(tempFile, 'utf8');
       }
       catch (err) {
-        this.connection.console.error(`Temp file strategy failed: ${err?.message || String(err)}`);
+        this.connection.console.log(`Temp file strategy failed: ${err?.message || String(err)}`);
         throw err;
       }
       finally {
@@ -841,7 +841,7 @@ function startServer() {
     if (!uri || typeof uri !== 'string') {
       const errorMsg = 'Cannot execute autofix: Invalid document reference. Please ensure a valid file is open.';
 
-      connection.console.error(`[executeAutofix] ${errorMsg} (received: ${JSON.stringify(uri)})`);
+      connection.console.log(`[executeAutofix] ${errorMsg} (received: ${JSON.stringify(uri)})`);
       connection.window.showErrorMessage(errorMsg);
 
       return;

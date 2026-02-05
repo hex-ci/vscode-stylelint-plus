@@ -51,7 +51,7 @@ describe('Server', () => {
         showErrorMessage: sinon.stub()
       },
       console: {
-        error: sinon.stub()
+        log: sinon.stub()
       },
       sendDiagnostics: sinon.stub(),
       sendNotification: sinon.stub(),
@@ -200,7 +200,7 @@ describe('Server', () => {
       const promise = Promise.reject('test error');
       rejectionHandler('test reason', promise);
 
-      assert.isTrue(connectionMock.console.error.calledWith(sinon.match('Unhandled Rejection')));
+      assert.isTrue(connectionMock.console.log.calledWith(sinon.match('Unhandled Rejection')));
     });
 
     it('should handle uncaughtException', () => {
@@ -221,7 +221,7 @@ describe('Server', () => {
       exceptionHandler(error);
 
       assert.isTrue(server.isShuttingDown);
-      assert.isTrue(connectionMock.console.error.calledWith(sinon.match('Uncaught Exception')));
+      assert.isTrue(connectionMock.console.log.calledWith(sinon.match('Uncaught Exception')));
       assert.isTrue(disposeSpy.called);
     });
 
@@ -241,7 +241,7 @@ describe('Server', () => {
       exceptionHandler(error);
 
       assert.isTrue(server.isShuttingDown);
-      assert.isTrue(connectionMock.console.error.calledWith(sinon.match('Uncaught Exception')));
+      assert.isTrue(connectionMock.console.log.calledWith(sinon.match('Uncaught Exception')));
     });
   });
 
@@ -348,7 +348,7 @@ describe('Server', () => {
       server.handleStylelintError(error, 'validation');
 
       assert.isTrue(connectionMock.window.showErrorMessage.called);
-      assert.isTrue(connectionMock.console.error.called);
+      assert.isTrue(connectionMock.console.log.called);
     });
   });
 
@@ -675,7 +675,7 @@ describe('Server', () => {
 
       await server.validate(document);
 
-      assert.isTrue(connectionMock.console.error.calledWith('Local stylelint not found.'));
+      assert.isTrue(connectionMock.console.log.calledWith('Local stylelint not found.'));
       assert.isTrue(connectionMock.sendNotification.calledWith('setStatusBarError'));
     });
 
@@ -817,7 +817,7 @@ describe('Server', () => {
 
       await server.validate(document);
 
-      assert.isTrue(connectionMock.console.error.called);
+      assert.isTrue(connectionMock.console.log.called);
       assert.isTrue(connectionMock.sendNotification.calledWith('setStatusBarError'));
     });
 
@@ -980,7 +980,7 @@ describe('Server', () => {
       const result = await unlinkPromise;
 
       assert.isFalse(result);
-      assert.isTrue(connectionMock.console.error.called);
+      assert.isTrue(connectionMock.console.log.called);
     });
 
     it('should return false when maxRetries is 0', async () => {
@@ -1015,7 +1015,7 @@ describe('Server', () => {
 
       await server.executeAutofix('file:///test.css');
 
-      assert.isTrue(connectionMock.console.error.calledWith(sinon.match('Document not found')));
+      assert.isTrue(connectionMock.console.log.calledWith(sinon.match('Document not found')));
     });
 
     it('should skip resolve options when documentPath is empty', async () => {
@@ -1236,7 +1236,7 @@ describe('Server', () => {
 
       await server.executeAutofix('file:///test.css');
 
-      assert.isTrue(connectionMock.console.error.calledWith('Local stylelint not found.'));
+      assert.isTrue(connectionMock.console.log.calledWith('Local stylelint not found.'));
       assert.isTrue(connectionMock.sendNotification.calledWith('setStatusBarError'));
       assert.isFalse(connectionMock.workspace.applyEdit.called);
     });
@@ -1264,7 +1264,7 @@ describe('Server', () => {
       }
 
       // Error should be logged
-      assert.isTrue(connectionMock.console.error.calledWith(sinon.match('Temp file strategy failed')));
+      assert.isTrue(connectionMock.console.log.calledWith(sinon.match('Temp file strategy failed')));
     });
 
     it('should handle temp file error without message property', async () => {
@@ -1288,7 +1288,7 @@ describe('Server', () => {
         // Expected
       }
 
-      assert.isTrue(connectionMock.console.error.calledWith(sinon.match('Temp file strategy failed')));
+      assert.isTrue(connectionMock.console.log.calledWith(sinon.match('Temp file strategy failed')));
     });
 
     it('should call safeUnlink in finally block even when lint fails', async () => {
@@ -1469,7 +1469,7 @@ describe('Server', () => {
           showErrorMessage: sinon.stub()
         },
         console: {
-          error: sinon.stub()
+          log: sinon.stub()
         },
         sendDiagnostics: sinon.stub(),
         sendNotification: sinon.stub(),
@@ -1681,7 +1681,7 @@ describe('Server', () => {
 
       await handlers.onRequest.handler({ uri: null });
 
-      assert.isTrue(connectionMock2.console.error.called);
+      assert.isTrue(connectionMock2.console.log.called);
       assert.isTrue(connectionMock2.window.showErrorMessage.calledWith(sinon.match('Cannot execute autofix')));
     });
 
@@ -1690,7 +1690,7 @@ describe('Server', () => {
 
       await handlers.onRequest.handler(undefined);
 
-      assert.isTrue(connectionMock2.console.error.called);
+      assert.isTrue(connectionMock2.console.log.called);
       assert.isTrue(connectionMock2.window.showErrorMessage.calledWith(sinon.match('Cannot execute autofix')));
     });
 
