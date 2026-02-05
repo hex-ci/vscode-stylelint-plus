@@ -76,7 +76,7 @@ The extension will automatically detect and use the ESM version.
 #### Version Indicator
 
 Check the status bar (bottom-right) to see which stylelint version is active:
-- `Stylelint+ (bundled v16.0.0)` - Using extension's bundled version
+- `Stylelint+ (bundled v15.11.0)` - Using extension's bundled version
 - `Stylelint+ (local v17.0.0)` - Using project's local version
 
 ### Features
@@ -103,9 +103,9 @@ This extension provides multiple ways to fix stylelint issues:
 #### Status Bar Indicator
 
 The extension displays a status bar item in the bottom-right corner showing:
-- **Green checkmark**: Stylelint is running successfully
+- **Normal state**: Stylelint is running successfully
   - Example: `Stylelint+ (bundled v15.11.0)` or `Stylelint+ (local v17.0.0)`
-- **Red error icon**: Stylelint encountered an error (e.g., local version not found)
+- **Error state**: Shows error icon `Stylelint+` when stylelint encountered an error (e.g., local version not found)
 - Hover over the status bar item to see detailed version information
 
 #### Fallback to Syntax Checking

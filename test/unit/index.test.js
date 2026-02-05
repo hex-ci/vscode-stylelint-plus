@@ -181,7 +181,7 @@ describe('Extension Activation', () => {
 
     await commandHandler();
 
-    assert.isTrue(vscodeMock.window.showInformationMessage.calledWith(sinon.match('Stylelint is disabled')));
+    assert.isTrue(vscodeMock.window.showInformationMessage.calledWith(sinon.match('Stylelint+ is disabled')));
 
     // Restore
     vscodeMock.workspace.getConfiguration.returns({ get: sinon.stub().returns(true) });

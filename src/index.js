@@ -130,7 +130,7 @@ module.exports.activate = ({subscriptions}) => {
       const enabled = workspace.getConfiguration('stylelint').get('enable');
 
       if (!enabled) {
-        window.showInformationMessage('Stylelint is disabled. Enable it in settings to use this command.');
+        window.showInformationMessage('Stylelint+ is disabled. Enable it in settings to use this command.');
 
         return;
       }
