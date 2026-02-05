@@ -147,7 +147,7 @@
     "esbuild": "^0.27.2",
     "eslint": "^9.39.2",
     "find-pkg-dir": "^2.0.0",
-    "glob": "^13.0.0",
+    "glob": "^13.0.1",
     "inspect-with-kind": "^1.0.5",
     "lodash": "^4.17.23",
     "mocha": "^11.7.5",
