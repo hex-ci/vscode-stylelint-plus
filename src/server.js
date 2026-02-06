@@ -857,6 +857,7 @@ function startServer() {
   connection.onDidChangeConfiguration((params) => {
     const settings = params?.settings;
     const stylelintSettings = settings?.stylelint || {};
+
     server.config = stylelintSettings.config;
     server.autoFixOnSave = stylelintSettings.autoFixOnSave;
     server.useLocal = stylelintSettings.useLocal;
