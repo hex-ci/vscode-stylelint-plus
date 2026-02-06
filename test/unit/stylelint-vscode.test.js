@@ -109,7 +109,7 @@ describe('stylelintVSCode', () => {
     lintStub.resolves({});
 
     const emptyResult = await stylelintVSCode(document);
-    assert.deepEqual(emptyResult, { diagnostics: [], ruleMetadata: {} });
+    assert.deepEqual(emptyResult, { diagnostics: [], ruleMetadata: {}, fixedCode: null });
 
     lintStub.resetBehavior();
     lintStub.resolves({
@@ -125,7 +125,7 @@ describe('stylelintVSCode', () => {
     });
 
     const fallbackResult = await stylelintVSCode(document);
-    assert.deepEqual(fallbackResult, { diagnostics: [], ruleMetadata: buildRuleMetadata() });
+    assert.deepEqual(fallbackResult, { diagnostics: [], ruleMetadata: buildRuleMetadata(), fixedCode: null });
 
     // Test with missing invalidOptionWarnings and warnings properties
     lintStub.resetBehavior();
@@ -177,13 +177,101 @@ describe('stylelintVSCode', () => {
     }
   });
 
-  it('should handle fix options and path-based linting', async () => {
+  it('should always use code mode for fix (not files mode)', async () => {
     const document = TextDocument.create('file:///test.css', 'css', 1, 'body {}');
-    await stylelintVSCode(document, { fix: true });
+
+    lintStub.resolves({
+      results: [{
+        invalidOptionWarnings: [],
+        warnings: []
+      }],
+      ruleMetadata: buildRuleMetadata(),
+      code: 'body { }'
+    });
+
+    const result = await stylelintVSCode(document, { fix: true });
 
     const lintArgs = lintStub.firstCall.args[0];
-    assert.deepEqual(lintArgs.files, ['/test.css']);
-    assert.equal(lintArgs.allowEmptyInput, true);
+    // Should use code + codeFilename, NOT files
+    assert.equal(lintArgs.code, 'body {}');
+    assert.equal(lintArgs.codeFilename, '/test.css');
+    assert.isUndefined(lintArgs.files);
+    assert.isTrue(lintArgs.fix);
+    // Should return fixedCode from result.code (v16+)
+    assert.equal(result.fixedCode, 'body { }');
+  });
+
+  it('should extract fixedCode from result.output for v15 compat', async () => {
+    const document = TextDocument.create('file:///test.css', 'css', 1, 'body {}');
+
+    // v15: no result.code, but result.output is overwritten with fixed code
+    lintStub.resolves({
+      results: [{
+        invalidOptionWarnings: [],
+        warnings: []
+      }],
+      ruleMetadata: buildRuleMetadata(),
+      output: 'body { }'
+    });
+
+    const result = await stylelintVSCode(document, { fix: true });
+
+    assert.equal(result.fixedCode, 'body { }');
+  });
+
+  it('should return fixedCode as null when fix not requested', async () => {
+    const document = TextDocument.create('file:///test.css', 'css', 1, 'body {}');
+
+    lintStub.resolves({
+      results: [{
+        invalidOptionWarnings: [],
+        warnings: []
+      }],
+      ruleMetadata: buildRuleMetadata(),
+      code: 'body { }'
+    });
+
+    const result = await stylelintVSCode(document);
+
+    // fix not requested, so fixedCode should be null even though result.code exists
+    assert.isNull(result.fixedCode);
+  });
+
+  it('should return fixedCode as null for v15 no-fix case (empty output)', async () => {
+    const document = TextDocument.create('file:///test.css', 'css', 1, 'body {}');
+
+    // v15 no-fix: output is "" (empty string from stubString formatter)
+    lintStub.resolves({
+      results: [{
+        invalidOptionWarnings: [],
+        warnings: []
+      }],
+      ruleMetadata: buildRuleMetadata(),
+      output: ''
+    });
+
+    const result = await stylelintVSCode(document, { fix: true });
+
+    // Empty string from stubString formatter should be treated as null
+    assert.isNull(result.fixedCode);
+  });
+
+  it('should return fixedCode in no-config fallback path', async () => {
+    const document = TextDocument.create('file:///test.css', 'css', 1, 'body {}');
+    const error = new Error('No configuration provided for /test.css');
+    lintStub.onFirstCall().rejects(error);
+    lintStub.onSecondCall().resolves({
+      results: [{
+        invalidOptionWarnings: [],
+        warnings: []
+      }],
+      ruleMetadata: buildRuleMetadata(),
+      code: 'body { }'
+    });
+
+    const result = await stylelintVSCode(document, { fix: true });
+
+    assert.equal(result.fixedCode, 'body { }');
   });
 
   it('should handle untitled defaults, syntax inference, and config', async () => {
@@ -289,7 +377,7 @@ describe('stylelintVSCode', () => {
 
     const result = await stylelintVSCode(document);
 
-    assert.deepEqual(result, { diagnostics: [], ruleMetadata: {} });
+    assert.deepEqual(result, { diagnostics: [], ruleMetadata: {}, fixedCode: null });
     assert.isFalse(lintStub.called);
   });
 });

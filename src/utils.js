@@ -2,8 +2,6 @@
 
 const { TextEdit } = require('vscode-languageserver-types');
 const JsDiff = require('diff');
-const crypto = require('crypto');
-const { join, parse, extname } = require('path');
 
 function isRangeOverlap(r1, r2, lineThreshold = 0, charThreshold = 0) {
   const expandedStartLine = r1.start.line - lineThreshold;
@@ -58,44 +56,7 @@ function generateTextEdits(document, originalText, fixedText) {
   return edits;
 }
 
-function generateTempFilename(originalPath) {
-  const parsed = parse(originalPath);
-  const ext = extname(originalPath) || '.css';
-  const random = crypto.randomBytes(4).toString('hex');
-  const timestamp = Date.now();
-  const pid = process.pid;
-
-  return join(
-    parsed.dir,
-    `_temp_vscode_autofix_${pid}_${timestamp}_${random}${ext}`
-  );
-}
-
-const LANGUAGE_TO_EXTENSION = new Map([
-  ['css', '.css'],
-  ['scss', '.scss'],
-  ['sass', '.sass'],
-  ['less', '.less'],
-  ['postcss', '.css'],
-  ['sugarss', '.sss'],
-  ['html', '.html'],
-  ['vue', '.vue'],
-  ['svelte', '.svelte'],
-  ['javascript', '.js'],
-  ['javascriptreact', '.jsx'],
-  ['typescript', '.ts'],
-  ['typescriptreact', '.tsx'],
-  ['markdown', '.md'],
-  ['xml', '.xml']
-]);
-
-function getExtensionFromLanguageId(languageId) {
-  return LANGUAGE_TO_EXTENSION.get(languageId) || '.css';
-}
-
 module.exports = {
   isRangeOverlap,
-  generateTextEdits,
-  generateTempFilename,
-  getExtensionFromLanguageId
+  generateTextEdits
 };

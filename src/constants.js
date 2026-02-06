@@ -32,10 +32,6 @@ module.exports = {
   // Document diagnostics max age (milliseconds)
   DIAGNOSTICS_MAX_AGE_MS: 600000, // 10 minutes
 
-  // Temp file cleanup retry settings
-  TEMP_FILE_MAX_RETRIES: 3,
-  TEMP_FILE_RETRY_DELAY_MS: 100,
-
   // Batch diagnostics interval (milliseconds)
   BATCH_DIAGNOSTICS_INTERVAL_MS: 100,
 

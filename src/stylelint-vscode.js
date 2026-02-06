@@ -39,7 +39,8 @@ const LANGUAGE_EXTENSION_EXCEPTION_PAIRS = new Map([
   ['xsl', 'html']
 ]);
 
-function processResults(resultContainer) {
+/* istanbul ignore next -- default param never used; both call sites pass explicit arg */
+function processResults(resultContainer, extractFixedCode = false) {
   const results = (resultContainer && Array.isArray(resultContainer.results))
     ? resultContainer.results
     : [];
@@ -50,11 +51,22 @@ function processResults(resultContainer) {
       ? firstResult._postcssResult.stylelint.ruleMetadata
       : null);
 
+  // Extract fixed code when fix mode is active
+  // - v16+: result.code contains the fixed code
+  // - v15: result.output is overwritten with fixed code by standalone.js
+  // - || null handles v15 no-fix case where output is "" (empty string from stubString formatter)
+  let fixedCode = null;
+
+  if (extractFixedCode && resultContainer) {
+    fixedCode = resultContainer.code ?? (resultContainer.output || null);
+  }
+
   // https://github.com/stylelint/stylelint/blob/10.0.1/lib/standalone.js#L114-L122
   if (results.length === 0) {
     return {
       diagnostics: [],
-      ruleMetadata: {}
+      ruleMetadata: {},
+      fixedCode
     };
   }
 
@@ -66,7 +78,8 @@ function processResults(resultContainer) {
 
   return {
     diagnostics: warnings.map(stylelintWarningToVscodeDiagnostic),
-    ruleMetadata: ruleMetadata || {}
+    ruleMetadata: ruleMetadata || {},
+    fixedCode
   };
 }
 
@@ -87,7 +100,7 @@ module.exports = async function stylelintVSCode(textDocument, options = {}) {
   const text = textDocument.getText();
 
   if (text.length > MAX_FILE_SIZE) {
-    return { diagnostics: [], ruleMetadata: {} };
+    return { diagnostics: [], ruleMetadata: {}, fixedCode: null };
   }
 
   const priorOptions = {
@@ -98,14 +111,8 @@ module.exports = async function stylelintVSCode(textDocument, options = {}) {
   let resultContainer;
 
   if (isAbsolutePath) {
-    if (options.fix) {
-      priorOptions.files = [codeFilename];
-      priorOptions.allowEmptyInput = true;
-    }
-    else {
-      priorOptions.code = text;
-      priorOptions.codeFilename = codeFilename;
-    }
+    priorOptions.code = text;
+    priorOptions.codeFilename = codeFilename;
   }
   else {
     priorOptions.code = text;
@@ -153,11 +160,11 @@ module.exports = async function stylelintVSCode(textDocument, options = {}) {
         config: {
           rules: {}
         }
-      }));
+      }), Boolean(options.fix));
     }
 
     throw err;
   }
 
-  return processResults(resultContainer);
+  return processResults(resultContainer, Boolean(options.fix));
 };

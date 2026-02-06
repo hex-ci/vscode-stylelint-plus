@@ -5,7 +5,8 @@ const {
   join,
   parse,
   resolve,
-  dirname
+  dirname,
+  isAbsolute
 } = require('path');
 const {
   createConnection,
@@ -16,8 +17,7 @@ const {
 const findPkgDir = require('find-pkg-dir');
 const parseUri = require('vscode-uri').URI.parse;
 const stylelintVSCode = require('./stylelint-vscode');
-const loadStylelint = require('./load-stylelint');
-const { isRangeOverlap, generateTextEdits, generateTempFilename, getExtensionFromLanguageId } = require('./utils');
+const { isRangeOverlap, generateTextEdits } = require('./utils');
 const LRUCache = require('./lru-cache');
 const DocumentDiagnosticsManager = require('./document-diagnostics-manager');
 const DiagnosticsBatcher = require('./diagnostics-batcher');
@@ -29,9 +29,7 @@ const {
   WORKSPACE_CACHE_TTL,
   VALIDATION_DEBOUNCE_MS,
   MAX_CONCURRENT_VALIDATIONS,
-  MAX_VERSION_CACHE_SIZE,
-  TEMP_FILE_MAX_RETRIES,
-  TEMP_FILE_RETRY_DELAY_MS
+  MAX_VERSION_CACHE_SIZE
 } = require('./constants');
 
 /**
@@ -71,9 +69,6 @@ class StylelintServer {
 
     // Debounced validation timers
     this.validateDebouncers = new Map();
-
-    // Failed temp file cleanup list
-    this.failedTempFiles = [];
 
     // Bound error handlers for cleanup
     this.boundUnhandledRejection = null;
@@ -342,9 +337,8 @@ class StylelintServer {
   /**
    * Validate a document with debouncing
    * @param {Object} document - Text document
-   * @param {boolean} [isAutoFixOnSave=false] - Whether this is auto-fix on save
    */
-  validateDebounced(document, isAutoFixOnSave = false) {
+  validateDebounced(document) {
     const uri = document.uri;
 
     // Clear existing debounce timer
@@ -357,7 +351,7 @@ class StylelintServer {
       const currentDoc = this.documents.get(uri);
 
       if (currentDoc) {
-        this.validate(currentDoc, isAutoFixOnSave);
+        this.validate(currentDoc);
       }
     }, VALIDATION_DEBOUNCE_MS);
 
@@ -367,10 +361,9 @@ class StylelintServer {
   /**
    * Validate a document using stylelint
    * @param {Object} document - Text document
-   * @param {boolean} [isAutoFixOnSave=false] - Whether this is auto-fix on save
    * @returns {Promise<void>}
    */
-  async validate(document, isAutoFixOnSave = false) {
+  async validate(document) {
     // Cancel any existing validation for this document
     const existingToken = this.validationTokens.get(document.uri);
     if (existingToken) {
@@ -381,16 +374,14 @@ class StylelintServer {
     this.validationTokens.set(document.uri, token);
 
     try {
-      const options = {
-        fix: isAutoFixOnSave
-      };
+      const options = {};
 
       if (this.config) {
         options.config = this.config;
       }
 
       const documentPath = parseUri(document.uri).fsPath;
-      const isAbsolutePath = documentPath && require('path').isAbsolute(documentPath);
+      const isAbsolutePath = documentPath && isAbsolute(documentPath);
 
       if (isAbsolutePath) {
         const folders = await this.getWorkspaceFolders();
@@ -521,49 +512,6 @@ class StylelintServer {
   }
 
   /**
-   * Safely unlink a file with retry logic
-   * @param {string} filePath - Path to file
-   * @param {number} [maxRetries=3] - Maximum retry attempts
-   * @returns {Promise<boolean>} Whether deletion succeeded
-   * @private
-   */
-  async safeUnlink(filePath, maxRetries = TEMP_FILE_MAX_RETRIES) {
-    for (let i = 0; i < maxRetries; i++) {
-      try {
-        await fsPromises.unlink(filePath);
-        return true;
-      }
-      catch (err) {
-        if (i === maxRetries - 1) {
-          this.connection.console.log(`Failed to delete temp file ${filePath} after ${maxRetries} attempts: ${err?.message || String(err)}`);
-          this.failedTempFiles.push(filePath);
-          return false;
-        }
-        // Wait before retry with exponential backoff
-        await new Promise(resolve => setTimeout(resolve, TEMP_FILE_RETRY_DELAY_MS * (i + 1)));
-      }
-    }
-
-    return false;
-  }
-
-  /**
-   * Retry cleanup of previously failed temp files
-   * @private
-   */
-  async retryFailedTempFiles() {
-    const files = this.failedTempFiles.splice(0);
-    for (const file of files) {
-      try {
-        await fsPromises.unlink(file);
-      }
-      catch {
-        // Still failed, will be cleaned up on next dispose
-      }
-    }
-  }
-
-  /**
    * Execute auto-fix for a document
    * @param {string} uri - Document URI
    * @param {Object} [diagnostic=null] - Specific diagnostic to fix
@@ -580,14 +528,24 @@ class StylelintServer {
 
     try {
       const documentPath = parseUri(document.uri).fsPath;
-      const isAbsolutePath = documentPath && require('path').isAbsolute(documentPath);
-      const options = {};
+      const isAbsolutePath = documentPath && isAbsolute(documentPath);
+      const options = { fix: true };
 
       if (this.config) {
         options.config = this.config;
       }
 
       if (isAbsolutePath) {
+        const folders = await this.getWorkspaceFolders();
+        const workspace = this.getWorkspaceForDocument(document.uri, folders);
+
+        if (workspace) {
+          options.cwd = parseUri(workspace.uri).fsPath;
+        }
+        else {
+          options.cwd = dirname(documentPath);
+        }
+
         const {ignorePath, path: stylelintPath} = await this.resolveStylelintOptions(document.uri);
 
         options.ignorePath = ignorePath;
@@ -625,66 +583,16 @@ class StylelintServer {
 
       const originalText = document.getText();
 
-      const stylelintModule = await loadStylelint(options.path, {fallbackToBundled: true});
-      const {lint} = stylelintModule;
+      const {fixedCode} = await stylelintVSCode(document, options);
 
-      // Generate temp file path
-      let tempFile;
-
-      if (isAbsolutePath) {
-        tempFile = generateTempFilename(documentPath);
-      }
-      else {
-        // Untitled document: use workspace or system temp directory
-        const folders = await this.getWorkspaceFolders();
-        const baseDir = (folders && folders.length > 0)
-          ? parseUri(folders[0].uri).fsPath
-          : require('os').tmpdir();
-        const ext = getExtensionFromLanguageId(document.languageId);
-
-        tempFile = generateTempFilename(join(baseDir, `untitled${ext}`));
-      }
-
-      let output;
-
-      try {
-        await fsPromises.writeFile(tempFile, originalText, 'utf8');
-
-        const fixOptions = {
-          ...options,
-          files: [tempFile],
-          fix: true,
-          quietDeprecationWarnings: true
-        };
-
-        delete fixOptions.path;
-        delete fixOptions.code;
-        delete fixOptions.codeFilename;
-
-        await lint(fixOptions);
-
-        output = await fsPromises.readFile(tempFile, 'utf8');
-      }
-      catch (err) {
-        this.connection.console.log(`Temp file strategy failed: ${err?.message || String(err)}`);
-        throw err;
-      }
-      finally {
-        await this.safeUnlink(tempFile);
-      }
-
-      if (!output) {
-        return;
-      }
-
-      if (output === originalText) {
+      if (!fixedCode || fixedCode === originalText) {
         return;
       }
 
       let edit;
 
       if (diagnostic) {
-        const allEdits = generateTextEdits(document, originalText, output);
+        const allEdits = generateTextEdits(document, originalText, fixedCode);
 
         const targetEdits = allEdits.filter((editItem) =>
           isRangeOverlap(editItem.range, diagnostic.range, DIAGNOSTIC_OVERLAP_LINE_THRESHOLD, DIAGNOSTIC_OVERLAP_CHAR_THRESHOLD)
@@ -713,7 +621,7 @@ class StylelintServer {
                 start: {line: 0, character: 0},
                 end: {line: lastLine, character: lastChar}
               },
-              newText: output
+              newText: fixedCode
             }]
           }
         };
@@ -759,9 +667,6 @@ class StylelintServer {
     if (this.boundUncaughtException) {
       process.removeListener('uncaughtException', this.boundUncaughtException);
     }
-
-    // Final cleanup of failed temp files
-    this.retryFailedTempFiles();
   }
 }
 
@@ -847,7 +752,12 @@ function startServer() {
 
     return {
       capabilities: {
-        textDocumentSync: documents.syncKind,
+        textDocumentSync: {
+          openClose: true,
+          change: documents.syncKind,
+          willSaveWaitUntil: true,
+          save: { includeText: false }
+        },
         codeActionProvider: true
       }
     };
@@ -894,11 +804,90 @@ function startServer() {
     server.documentDiagnostics.delete(document.uri);
   });
 
-  // Document save handler
-  documents.onDidSave(({document}) => {
-    if (server.autoFixOnSave) {
-      server.clearDebouncer(document.uri);
-      server.validate(document, true);
+  // Auto-fix on save handler — returns TextEdits applied before save
+  documents.onWillSaveWaitUntil(async (event) => {
+    if (!server.autoFixOnSave) {
+      return [];
+    }
+
+    const document = event.document;
+
+    try {
+      const options = { fix: true };
+
+      if (server.config) {
+        options.config = server.config;
+      }
+
+      const documentPath = parseUri(document.uri).fsPath;
+      const isAbsolutePath = documentPath && isAbsolute(documentPath);
+
+      if (isAbsolutePath) {
+        const folders = await server.getWorkspaceFolders();
+        const workspace = server.getWorkspaceForDocument(document.uri, folders);
+
+        if (workspace) {
+          options.cwd = parseUri(workspace.uri).fsPath;
+        }
+        else {
+          options.cwd = dirname(documentPath);
+        }
+
+        const {ignorePath, path: stylelintPath} = await server.resolveStylelintOptions(document.uri);
+
+        options.ignorePath = ignorePath;
+
+        if (server.useLocal) {
+          if (!stylelintPath) {
+            return [];
+          }
+          options.path = stylelintPath;
+        }
+      }
+      else {
+        const folders = await server.getWorkspaceFolders();
+
+        if (folders && folders.length > 0) {
+          options.cwd = parseUri(folders[0].uri).fsPath;
+
+          if (server.useLocal) {
+            const localPath = join(options.cwd, 'node_modules', 'stylelint');
+
+            try {
+              await fsPromises.access(localPath);
+              options.path = localPath;
+            }
+            catch {
+              // Local stylelint not found, use bundled
+            }
+          }
+        }
+      }
+
+      const {fixedCode} = await stylelintVSCode(document, options);
+
+      if (!fixedCode || fixedCode === document.getText()) {
+        return [];
+      }
+
+      // Return full-document replacement TextEdit
+      const originalText = document.getText();
+      const lines = originalText.split('\n');
+      const lastLine = lines.length - 1;
+      const lastChar = lines[lastLine].length;
+
+      return [{
+        range: {
+          start: {line: 0, character: 0},
+          end: {line: lastLine, character: lastChar}
+        },
+        newText: fixedCode
+      }];
+    }
+    catch (err) {
+      server.handleStylelintError(err, 'autofix-on-save');
+
+      return [];
     }
   });
 
@@ -910,8 +899,8 @@ function startServer() {
 }
 
 // Only start the server if this file is being run directly (not required as a module)
+/* istanbul ignore next -- only runs when executed directly, not testable via require */
 if (require.main === module) {
-  /* istanbul ignore next */
   startServer();
 }
 

@@ -15,8 +15,6 @@ describe('Constants', () => {
     assert.isNumber(constants.MAX_VERSION_CACHE_SIZE);
     assert.isNumber(constants.DIAGNOSTICS_CLEANUP_INTERVAL_MS);
     assert.isNumber(constants.DIAGNOSTICS_MAX_AGE_MS);
-    assert.isNumber(constants.TEMP_FILE_MAX_RETRIES);
-    assert.isNumber(constants.TEMP_FILE_RETRY_DELAY_MS);
     assert.isNumber(constants.BATCH_DIAGNOSTICS_INTERVAL_MS);
     assert.isNumber(constants.MAX_FILE_SIZE);
 
@@ -30,8 +28,6 @@ describe('Constants', () => {
     assert.strictEqual(constants.MAX_VERSION_CACHE_SIZE, 50);
     assert.strictEqual(constants.DIAGNOSTICS_CLEANUP_INTERVAL_MS, 300000);
     assert.strictEqual(constants.DIAGNOSTICS_MAX_AGE_MS, 600000);
-    assert.strictEqual(constants.TEMP_FILE_MAX_RETRIES, 3);
-    assert.strictEqual(constants.TEMP_FILE_RETRY_DELAY_MS, 100);
     assert.strictEqual(constants.BATCH_DIAGNOSTICS_INTERVAL_MS, 100);
     assert.strictEqual(constants.MAX_FILE_SIZE, 1024 * 1024 * 5);
   });
