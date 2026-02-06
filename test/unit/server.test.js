@@ -510,6 +510,229 @@ describe('Server', () => {
     });
   });
 
+  describe('buildStylelintOptions', () => {
+    it('should return options with cwd from workspace for absolute path', async () => {
+      const server = new StylelintServer(connectionMock, documentsMock);
+      const document = {
+        uri: 'file:///workspace/test.css',
+        getText: () => 'a { color: red; }'
+      };
+
+      server.resolveStylelintOptions = sinon.stub().resolves({
+        ignorePath: '/workspace/.stylelintignore'
+      });
+
+      connectionMock.workspace.getWorkspaceFolders.resolves([
+        { uri: 'file:///workspace' }
+      ]);
+
+      const {options, localNotFound} = await server.buildStylelintOptions(document);
+
+      assert.isFalse(localNotFound);
+      assert.equal(options.cwd, '/workspace');
+      assert.equal(options.ignorePath, '/workspace/.stylelintignore');
+    });
+
+    it('should merge extraOptions into result', async () => {
+      const server = new StylelintServer(connectionMock, documentsMock);
+      const document = {
+        uri: 'file:///workspace/test.css',
+        getText: () => 'a { color: red; }'
+      };
+
+      server.resolveStylelintOptions = sinon.stub().resolves({
+        ignorePath: '/workspace/.stylelintignore'
+      });
+
+      connectionMock.workspace.getWorkspaceFolders.resolves([
+        { uri: 'file:///workspace' }
+      ]);
+
+      const {options} = await server.buildStylelintOptions(document, {fix: true});
+
+      assert.isTrue(options.fix);
+      assert.equal(options.cwd, '/workspace');
+    });
+
+    it('should include config when server.config is set', async () => {
+      const server = new StylelintServer(connectionMock, documentsMock);
+      server.config = { rules: { 'color-hex-case': 'lower' } };
+
+      const document = {
+        uri: 'file:///workspace/test.css',
+        getText: () => 'a { color: red; }'
+      };
+
+      server.resolveStylelintOptions = sinon.stub().resolves({
+        ignorePath: '/workspace/.stylelintignore'
+      });
+
+      connectionMock.workspace.getWorkspaceFolders.resolves([
+        { uri: 'file:///workspace' }
+      ]);
+
+      const {options} = await server.buildStylelintOptions(document);
+
+      assert.deepEqual(options.config, { rules: { 'color-hex-case': 'lower' } });
+    });
+
+    it('should use dirname as cwd when no workspace matches absolute path', async () => {
+      const server = new StylelintServer(connectionMock, documentsMock);
+      const document = {
+        uri: 'file:///other/test.css',
+        getText: () => 'a { color: red; }'
+      };
+
+      server.resolveStylelintOptions = sinon.stub().resolves({
+        ignorePath: '/other/.stylelintignore'
+      });
+
+      connectionMock.workspace.getWorkspaceFolders.resolves([
+        { uri: 'file:///workspace' }
+      ]);
+
+      const {options} = await server.buildStylelintOptions(document);
+
+      assert.equal(options.cwd, '/other');
+    });
+
+    it('should set local stylelint path when useLocal is true and path exists', async () => {
+      const server = new StylelintServer(connectionMock, documentsMock);
+      server.useLocal = true;
+
+      const document = {
+        uri: 'file:///workspace/test.css',
+        getText: () => 'a { color: red; }'
+      };
+
+      server.resolveStylelintOptions = sinon.stub().resolves({
+        ignorePath: '/workspace/.stylelintignore',
+        path: '/workspace/node_modules/stylelint'
+      });
+
+      connectionMock.workspace.getWorkspaceFolders.resolves([
+        { uri: 'file:///workspace' }
+      ]);
+
+      const {options, localNotFound} = await server.buildStylelintOptions(document);
+
+      assert.isFalse(localNotFound);
+      assert.equal(options.path, '/workspace/node_modules/stylelint');
+    });
+
+    it('should return localNotFound when useLocal is true but path is null', async () => {
+      const server = new StylelintServer(connectionMock, documentsMock);
+      server.useLocal = true;
+
+      const document = {
+        uri: 'file:///workspace/test.css',
+        getText: () => 'a { color: red; }'
+      };
+
+      server.resolveStylelintOptions = sinon.stub().resolves({
+        ignorePath: '/workspace/.stylelintignore',
+        path: null
+      });
+
+      connectionMock.workspace.getWorkspaceFolders.resolves([
+        { uri: 'file:///workspace' }
+      ]);
+
+      const {localNotFound} = await server.buildStylelintOptions(document);
+
+      assert.isTrue(localNotFound);
+    });
+
+    it('should set cwd from first workspace for untitled document', async () => {
+      const server = new StylelintServer(connectionMock, documentsMock);
+      const document = {
+        uri: 'untitled:Untitled-1',
+        getText: () => 'a { color: red; }'
+      };
+
+      connectionMock.workspace.getWorkspaceFolders.resolves([
+        { uri: 'file:///workspace' }
+      ]);
+
+      const {options, localNotFound} = await server.buildStylelintOptions(document);
+
+      assert.isFalse(localNotFound);
+      assert.equal(options.cwd, '/workspace');
+    });
+
+    it('should not set cwd for untitled document without workspace', async () => {
+      const server = new StylelintServer(connectionMock, documentsMock);
+      const document = {
+        uri: 'untitled:Untitled-1',
+        getText: () => 'a { color: red; }'
+      };
+
+      connectionMock.workspace.getWorkspaceFolders.resolves([]);
+
+      const {options, localNotFound} = await server.buildStylelintOptions(document);
+
+      assert.isFalse(localNotFound);
+      assert.isUndefined(options.cwd);
+    });
+
+    it('should find local stylelint for untitled document with useLocal', async () => {
+      const server = new StylelintServer(connectionMock, documentsMock);
+      server.useLocal = true;
+
+      const document = {
+        uri: 'untitled:Untitled-1',
+        getText: () => 'a { color: red; }'
+      };
+
+      connectionMock.workspace.getWorkspaceFolders.resolves([
+        { uri: 'file:///workspace' }
+      ]);
+
+      fsPromisesStub.access.resolves();
+
+      const {options, localNotFound} = await server.buildStylelintOptions(document);
+
+      assert.isFalse(localNotFound);
+      assert.equal(options.path, '/workspace/node_modules/stylelint');
+    });
+
+    it('should not set path for untitled document when local stylelint not found', async () => {
+      const server = new StylelintServer(connectionMock, documentsMock);
+      server.useLocal = true;
+
+      const document = {
+        uri: 'untitled:Untitled-1',
+        getText: () => 'a { color: red; }'
+      };
+
+      connectionMock.workspace.getWorkspaceFolders.resolves([
+        { uri: 'file:///workspace' }
+      ]);
+
+      fsPromisesStub.access.rejects(new Error('Not found'));
+
+      const {options, localNotFound} = await server.buildStylelintOptions(document);
+
+      assert.isFalse(localNotFound);
+      assert.isUndefined(options.path);
+    });
+
+    it('should not mutate extraOptions object', async () => {
+      const server = new StylelintServer(connectionMock, documentsMock);
+      const document = {
+        uri: 'untitled:Untitled-1',
+        getText: () => 'a { color: red; }'
+      };
+
+      connectionMock.workspace.getWorkspaceFolders.resolves([]);
+
+      const extra = {fix: true};
+      await server.buildStylelintOptions(document, extra);
+
+      assert.deepEqual(extra, {fix: true});
+    });
+  });
+
   describe('validate', () => {
     it('should validate document with absolute path', async () => {
       const server = new StylelintServer(connectionMock, documentsMock);
@@ -539,50 +762,6 @@ describe('Server', () => {
       assert.equal(callArgs[0], document);
       assert.equal(callArgs[1].cwd, '/workspace');
       assert.equal(callArgs[1].ignorePath, '/workspace/.stylelintignore');
-    });
-
-    it('should validate untitled document with workspace', async () => {
-      const server = new StylelintServer(connectionMock, documentsMock);
-      const document = {
-        uri: 'untitled:Untitled-1',
-        getText: () => 'a { color: red; }'
-      };
-
-      connectionMock.workspace.getWorkspaceFolders.resolves([
-        { uri: 'file:///workspace' }
-      ]);
-
-      stylelintVSCodeStub.resolves({
-        diagnostics: [],
-        ruleMetadata: {},
-        fixedCode: null
-      });
-
-      await server.validate(document);
-
-      assert.isTrue(stylelintVSCodeStub.called);
-      const callArgs = stylelintVSCodeStub.firstCall.args;
-      assert.equal(callArgs[1].cwd, '/workspace');
-    });
-
-    it('should validate untitled document without workspace', async () => {
-      const server = new StylelintServer(connectionMock, documentsMock);
-      const document = {
-        uri: 'untitled:Untitled-1',
-        getText: () => 'a { color: red; }'
-      };
-
-      connectionMock.workspace.getWorkspaceFolders.resolves([]);
-
-      stylelintVSCodeStub.resolves({
-        diagnostics: [],
-        ruleMetadata: {},
-        fixedCode: null
-      });
-
-      await server.validate(document);
-
-      assert.isTrue(stylelintVSCodeStub.called);
     });
 
     it('should use local stylelint when useLocal is true', async () => {
@@ -867,35 +1046,6 @@ describe('Server', () => {
 
       // The replacement token should still be in the map (not deleted by finally)
       assert.equal(server.validationTokens.get(document.uri), replacementToken);
-    });
-
-    it('should use dirname as cwd when no workspace found for absolute path', async () => {
-      const server = new StylelintServer(connectionMock, documentsMock);
-
-      const document = {
-        uri: 'file:///other/test.css',
-        getText: () => 'a { color: red; }'
-      };
-
-      server.resolveStylelintOptions = sinon.stub().resolves({
-        ignorePath: '/other/.stylelintignore'
-      });
-
-      connectionMock.workspace.getWorkspaceFolders.resolves([
-        { uri: 'file:///workspace' }
-      ]);
-
-      stylelintVSCodeStub.resolves({
-        diagnostics: [],
-        ruleMetadata: {},
-        fixedCode: null
-      });
-
-      await server.validate(document);
-
-      assert.isTrue(stylelintVSCodeStub.called);
-      const callArgs = stylelintVSCodeStub.firstCall.args;
-      assert.equal(callArgs[1].cwd, '/other');
     });
   });
 
@@ -1255,39 +1405,6 @@ describe('Server', () => {
       assert.isTrue(callArgs[1].fix);
     });
 
-    it('should handle autofix with local stylelint path', async () => {
-      const server = new StylelintServer(connectionMock, documentsMock);
-      server.useLocal = true;
-
-      const document = {
-        uri: 'file:///workspace/test.css',
-        getText: () => 'css content'
-      };
-
-      documentsMock.get.returns(document);
-
-      server.resolveStylelintOptions = sinon.stub().resolves({
-        ignorePath: '/workspace/.stylelintignore',
-        path: '/workspace/node_modules/stylelint'
-      });
-
-      connectionMock.workspace.getWorkspaceFolders.resolves([
-        { uri: 'file:///workspace' }
-      ]);
-
-      stylelintVSCodeStub.resolves({
-        diagnostics: [],
-        ruleMetadata: {},
-        fixedCode: 'fixed content'
-      });
-
-      await server.executeAutofix('file:///workspace/test.css');
-
-      assert.isTrue(stylelintVSCodeStub.called);
-      const callArgs = stylelintVSCodeStub.firstCall.args;
-      assert.equal(callArgs[1].path, '/workspace/node_modules/stylelint');
-    });
-
     it('should handle local stylelint not found when useLocal is true', async () => {
       const server = new StylelintServer(connectionMock, documentsMock);
       server.useLocal = true;
@@ -1314,116 +1431,6 @@ describe('Server', () => {
       assert.isTrue(connectionMock.console.log.calledWith('Local stylelint not found.'));
     });
 
-    it('should handle untitled document autofix with workspace', async () => {
-      const server = new StylelintServer(connectionMock, documentsMock);
-
-      const document = {
-        uri: 'untitled:Untitled-1',
-        getText: () => 'css content'
-      };
-
-      documentsMock.get.returns(document);
-
-      connectionMock.workspace.getWorkspaceFolders.resolves([
-        { uri: 'file:///workspace' }
-      ]);
-
-      stylelintVSCodeStub.resolves({
-        diagnostics: [],
-        ruleMetadata: {},
-        fixedCode: 'fixed content'
-      });
-
-      await server.executeAutofix('untitled:Untitled-1');
-
-      assert.isTrue(stylelintVSCodeStub.called);
-      const callArgs = stylelintVSCodeStub.firstCall.args;
-      assert.equal(callArgs[1].cwd, '/workspace');
-    });
-
-    it('should handle untitled document autofix with useLocal and local stylelint found', async () => {
-      const server = new StylelintServer(connectionMock, documentsMock);
-      server.useLocal = true;
-
-      const document = {
-        uri: 'untitled:Untitled-1',
-        getText: () => 'css content'
-      };
-
-      documentsMock.get.returns(document);
-
-      connectionMock.workspace.getWorkspaceFolders.resolves([
-        { uri: 'file:///workspace' }
-      ]);
-
-      fsPromisesStub.access.resolves();
-
-      stylelintVSCodeStub.resolves({
-        diagnostics: [],
-        ruleMetadata: {},
-        fixedCode: 'fixed content'
-      });
-
-      await server.executeAutofix('untitled:Untitled-1');
-
-      assert.isTrue(stylelintVSCodeStub.called);
-      const callArgs = stylelintVSCodeStub.firstCall.args;
-      assert.equal(callArgs[1].path, '/workspace/node_modules/stylelint');
-    });
-
-    it('should handle untitled document autofix with useLocal but local stylelint not found', async () => {
-      const server = new StylelintServer(connectionMock, documentsMock);
-      server.useLocal = true;
-
-      const document = {
-        uri: 'untitled:Untitled-1',
-        getText: () => 'css content'
-      };
-
-      documentsMock.get.returns(document);
-
-      connectionMock.workspace.getWorkspaceFolders.resolves([
-        { uri: 'file:///workspace' }
-      ]);
-
-      fsPromisesStub.access.rejects(new Error('Not found'));
-
-      stylelintVSCodeStub.resolves({
-        diagnostics: [],
-        ruleMetadata: {},
-        fixedCode: 'fixed content'
-      });
-
-      await server.executeAutofix('untitled:Untitled-1');
-
-      assert.isTrue(stylelintVSCodeStub.called);
-      const callArgs = stylelintVSCodeStub.firstCall.args;
-      assert.isUndefined(callArgs[1].path);
-    });
-
-    it('should handle untitled document autofix without workspace', async () => {
-      const server = new StylelintServer(connectionMock, documentsMock);
-
-      const document = {
-        uri: 'untitled:Untitled-1',
-        getText: () => 'css content'
-      };
-
-      documentsMock.get.returns(document);
-
-      connectionMock.workspace.getWorkspaceFolders.resolves([]);
-
-      stylelintVSCodeStub.resolves({
-        diagnostics: [],
-        ruleMetadata: {},
-        fixedCode: 'fixed content'
-      });
-
-      await server.executeAutofix('untitled:Untitled-1');
-
-      assert.isTrue(stylelintVSCodeStub.called);
-    });
-
     it('should handle autofix errors', async () => {
       const server = new StylelintServer(connectionMock, documentsMock);
 
@@ -1448,68 +1455,6 @@ describe('Server', () => {
       await server.executeAutofix('file:///workspace/test.css');
 
       assert.isTrue(connectionMock.console.log.calledWith(sinon.match('autofix error')));
-    });
-
-    it('should set cwd from workspace for absolute path documents', async () => {
-      const server = new StylelintServer(connectionMock, documentsMock);
-
-      const document = {
-        uri: 'file:///workspace/subdir/test.css',
-        getText: () => 'css content'
-      };
-
-      documentsMock.get.returns(document);
-
-      server.resolveStylelintOptions = sinon.stub().resolves({
-        ignorePath: '/workspace/.stylelintignore'
-      });
-
-      connectionMock.workspace.getWorkspaceFolders.resolves([
-        { uri: 'file:///workspace' }
-      ]);
-
-      stylelintVSCodeStub.resolves({
-        diagnostics: [],
-        ruleMetadata: {},
-        fixedCode: 'fixed content'
-      });
-
-      await server.executeAutofix('file:///workspace/subdir/test.css');
-
-      assert.isTrue(stylelintVSCodeStub.called);
-      const callArgs = stylelintVSCodeStub.firstCall.args;
-      assert.equal(callArgs[1].cwd, '/workspace');
-    });
-
-    it('should set cwd to dirname when no workspace found for absolute path', async () => {
-      const server = new StylelintServer(connectionMock, documentsMock);
-
-      const document = {
-        uri: 'file:///other/test.css',
-        getText: () => 'css content'
-      };
-
-      documentsMock.get.returns(document);
-
-      server.resolveStylelintOptions = sinon.stub().resolves({
-        ignorePath: '/other/.stylelintignore'
-      });
-
-      connectionMock.workspace.getWorkspaceFolders.resolves([
-        { uri: 'file:///workspace' }
-      ]);
-
-      stylelintVSCodeStub.resolves({
-        diagnostics: [],
-        ruleMetadata: {},
-        fixedCode: 'fixed content'
-      });
-
-      await server.executeAutofix('file:///other/test.css');
-
-      assert.isTrue(stylelintVSCodeStub.called);
-      const callArgs = stylelintVSCodeStub.firstCall.args;
-      assert.equal(callArgs[1].cwd, '/other');
     });
   });
 
@@ -1842,99 +1787,6 @@ describe('Server', () => {
       assert.isTrue(connectionStub.console.log.calledWith(sinon.match('autofix-on-save error')));
     });
 
-    it('should include config in onWillSaveWaitUntil options when server.config is set', async () => {
-      const server = serverModule.startServer();
-      server.autoFixOnSave = true;
-      server.config = { rules: { 'color-hex-case': 'lower' } };
-      server.resolveStylelintOptions = sinon.stub().resolves({
-        ignorePath: '/workspace/.stylelintignore'
-      });
-
-      const document = {
-        uri: 'file:///workspace/test.css',
-        getText: () => 'a { color: red; }'
-      };
-
-      connectionStub.workspace.getWorkspaceFolders.resolves([
-        { uri: 'file:///workspace' }
-      ]);
-
-      stylelintVSCodeStub.resolves({
-        diagnostics: [],
-        ruleMetadata: {},
-        fixedCode: 'a { color: blue; }'
-      });
-
-      const edits = await handlers.onWillSaveWaitUntil({ document });
-
-      assert.isArray(edits);
-      assert.equal(edits.length, 1);
-      const callArgs = stylelintVSCodeStub.firstCall.args;
-      assert.deepEqual(callArgs[1].config, { rules: { 'color-hex-case': 'lower' } });
-    });
-
-    it('should set cwd to dirname when no workspace for absolute path in onWillSaveWaitUntil', async () => {
-      const server = serverModule.startServer();
-      server.autoFixOnSave = true;
-      server.resolveStylelintOptions = sinon.stub().resolves({
-        ignorePath: '/other/.stylelintignore'
-      });
-
-      const document = {
-        uri: 'file:///other/test.css',
-        getText: () => 'a { color: red; }'
-      };
-
-      connectionStub.workspace.getWorkspaceFolders.resolves([
-        { uri: 'file:///workspace' }
-      ]);
-
-      stylelintVSCodeStub.resolves({
-        diagnostics: [],
-        ruleMetadata: {},
-        fixedCode: 'a { color: blue; }'
-      });
-
-      const edits = await handlers.onWillSaveWaitUntil({ document });
-
-      assert.isArray(edits);
-      assert.equal(edits.length, 1);
-      const callArgs = stylelintVSCodeStub.firstCall.args;
-      assert.equal(callArgs[1].cwd, '/other');
-    });
-
-    it('should use local stylelint in onWillSaveWaitUntil when useLocal and path found', async () => {
-      const server = serverModule.startServer();
-      server.autoFixOnSave = true;
-      server.useLocal = true;
-      server.resolveStylelintOptions = sinon.stub().resolves({
-        ignorePath: '/workspace/.stylelintignore',
-        path: '/workspace/node_modules/stylelint'
-      });
-
-      const document = {
-        uri: 'file:///workspace/test.css',
-        getText: () => 'a { color: red; }'
-      };
-
-      connectionStub.workspace.getWorkspaceFolders.resolves([
-        { uri: 'file:///workspace' }
-      ]);
-
-      stylelintVSCodeStub.resolves({
-        diagnostics: [],
-        ruleMetadata: {},
-        fixedCode: 'a { color: blue; }'
-      });
-
-      const edits = await handlers.onWillSaveWaitUntil({ document });
-
-      assert.isArray(edits);
-      assert.equal(edits.length, 1);
-      const callArgs = stylelintVSCodeStub.firstCall.args;
-      assert.equal(callArgs[1].path, '/workspace/node_modules/stylelint');
-    });
-
     it('should return [] in onWillSaveWaitUntil when useLocal but no stylelint path', async () => {
       const server = serverModule.startServer();
       server.autoFixOnSave = true;
@@ -1958,117 +1810,6 @@ describe('Server', () => {
       assert.isArray(edits);
       assert.equal(edits.length, 0);
       assert.isFalse(stylelintVSCodeStub.called);
-    });
-
-    it('should handle untitled document in onWillSaveWaitUntil with workspace', async () => {
-      const server = serverModule.startServer();
-      server.autoFixOnSave = true;
-
-      const document = {
-        uri: 'untitled:Untitled-1',
-        getText: () => 'a { color: red; }'
-      };
-
-      connectionStub.workspace.getWorkspaceFolders.resolves([
-        { uri: 'file:///workspace' }
-      ]);
-
-      stylelintVSCodeStub.resolves({
-        diagnostics: [],
-        ruleMetadata: {},
-        fixedCode: 'a { color: blue; }'
-      });
-
-      const edits = await handlers.onWillSaveWaitUntil({ document });
-
-      assert.isArray(edits);
-      assert.equal(edits.length, 1);
-      const callArgs = stylelintVSCodeStub.firstCall.args;
-      assert.equal(callArgs[1].cwd, '/workspace');
-    });
-
-    it('should handle untitled document in onWillSaveWaitUntil with useLocal and local found', async () => {
-      const server = serverModule.startServer();
-      server.autoFixOnSave = true;
-      server.useLocal = true;
-
-      const document = {
-        uri: 'untitled:Untitled-1',
-        getText: () => 'a { color: red; }'
-      };
-
-      connectionStub.workspace.getWorkspaceFolders.resolves([
-        { uri: 'file:///workspace' }
-      ]);
-
-      fsPromisesStub.access.resolves();
-
-      stylelintVSCodeStub.resolves({
-        diagnostics: [],
-        ruleMetadata: {},
-        fixedCode: 'a { color: blue; }'
-      });
-
-      const edits = await handlers.onWillSaveWaitUntil({ document });
-
-      assert.isArray(edits);
-      assert.equal(edits.length, 1);
-      const callArgs = stylelintVSCodeStub.firstCall.args;
-      assert.equal(callArgs[1].path, '/workspace/node_modules/stylelint');
-    });
-
-    it('should handle untitled document in onWillSaveWaitUntil with useLocal but local not found', async () => {
-      const server = serverModule.startServer();
-      server.autoFixOnSave = true;
-      server.useLocal = true;
-
-      const document = {
-        uri: 'untitled:Untitled-1',
-        getText: () => 'a { color: red; }'
-      };
-
-      connectionStub.workspace.getWorkspaceFolders.resolves([
-        { uri: 'file:///workspace' }
-      ]);
-
-      fsPromisesStub.access.rejects(new Error('Not found'));
-
-      stylelintVSCodeStub.resolves({
-        diagnostics: [],
-        ruleMetadata: {},
-        fixedCode: 'a { color: blue; }'
-      });
-
-      const edits = await handlers.onWillSaveWaitUntil({ document });
-
-      assert.isArray(edits);
-      assert.equal(edits.length, 1);
-      const callArgs = stylelintVSCodeStub.firstCall.args;
-      assert.isUndefined(callArgs[1].path);
-    });
-
-    it('should handle untitled document in onWillSaveWaitUntil without workspace', async () => {
-      const server = serverModule.startServer();
-      server.autoFixOnSave = true;
-
-      const document = {
-        uri: 'untitled:Untitled-1',
-        getText: () => 'a { color: red; }'
-      };
-
-      connectionStub.workspace.getWorkspaceFolders.resolves([]);
-
-      stylelintVSCodeStub.resolves({
-        diagnostics: [],
-        ruleMetadata: {},
-        fixedCode: 'a { color: blue; }'
-      });
-
-      const edits = await handlers.onWillSaveWaitUntil({ document });
-
-      assert.isArray(edits);
-      assert.equal(edits.length, 1);
-      assert.isUndefined(stylelintVSCodeStub.firstCall.args[1].cwd);
     });
 
     describe('onCodeAction', () => {

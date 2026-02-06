@@ -323,6 +323,73 @@ class StylelintServer {
   }
 
   /**
+   * Build stylelint options for a document, resolving workspace, cwd, ignorePath, and local path.
+   * Shared by validate(), executeAutofix(), and onWillSaveWaitUntil.
+   *
+   * @param {Object} document - Text document
+   * @param {Object} [extraOptions={}] - Additional options to merge (e.g., {fix: true})
+   * @returns {Promise<{options: Object, localNotFound: boolean}>}
+   *   - options: The resolved stylelint options
+   *   - localNotFound: true if useLocal is enabled but local stylelint was not found (absolute path only)
+   */
+  async buildStylelintOptions(document, extraOptions = {}) {
+    const options = {...extraOptions};
+
+    if (this.config) {
+      options.config = this.config;
+    }
+
+    const documentPath = parseUri(document.uri).fsPath;
+    const isAbsPath = documentPath && isAbsolute(documentPath);
+
+    if (isAbsPath) {
+      const folders = await this.getWorkspaceFolders();
+      const workspace = this.getWorkspaceForDocument(document.uri, folders);
+
+      if (workspace) {
+        options.cwd = parseUri(workspace.uri).fsPath;
+      }
+      else {
+        options.cwd = dirname(documentPath);
+      }
+
+      const {ignorePath, path: stylelintPath} = await this.resolveStylelintOptions(document.uri);
+
+      options.ignorePath = ignorePath;
+
+      if (this.useLocal) {
+        if (!stylelintPath) {
+          return {options, localNotFound: true};
+        }
+
+        options.path = stylelintPath;
+      }
+    }
+    else {
+      // Untitled document: try to use workspace as cwd for config lookup
+      const folders = await this.getWorkspaceFolders();
+
+      if (folders && folders.length > 0) {
+        options.cwd = parseUri(folders[0].uri).fsPath;
+
+        if (this.useLocal) {
+          const localPath = join(options.cwd, 'node_modules', 'stylelint');
+
+          try {
+            await fsPromises.access(localPath);
+            options.path = localPath;
+          }
+          catch {
+            // Local stylelint not found, use bundled
+          }
+        }
+      }
+    }
+
+    return {options, localNotFound: false};
+  }
+
+  /**
    * Clear debounce timer for a document
    * @param {string} uri - Document URI
    * @private
@@ -374,91 +441,22 @@ class StylelintServer {
     this.validationTokens.set(document.uri, token);
 
     try {
-      const options = {};
+      const {options, localNotFound} = await this.buildStylelintOptions(document);
 
-      if (this.config) {
-        options.config = this.config;
+      if (localNotFound) {
+        this.connection.console.log('Local stylelint not found.');
+        this.safeNotification('setStatusBarError');
+
+        return;
       }
 
-      const documentPath = parseUri(document.uri).fsPath;
-      const isAbsolutePath = documentPath && isAbsolute(documentPath);
+      // Version tracking (validate-specific)
+      const stylelintPath = options.path || null;
+      const versionInfo = await this.getVersionInfo(stylelintPath);
+      this.detectedStylelintVersion = versionInfo.version;
+      this.isUsingLocal = stylelintPath ? versionInfo.isLocal : false;
 
-      if (isAbsolutePath) {
-        const folders = await this.getWorkspaceFolders();
-
-        const workspace = this.getWorkspaceForDocument(document.uri, folders);
-
-        if (workspace) {
-          options.cwd = parseUri(workspace.uri).fsPath;
-        }
-        else {
-          options.cwd = dirname(documentPath);
-        }
-
-        const {ignorePath, path: stylelintPath} = await this.resolveStylelintOptions(document.uri);
-
-        options.ignorePath = ignorePath;
-
-        if (this.useLocal) {
-          if (!stylelintPath) {
-            this.connection.console.log('Local stylelint not found.');
-            this.safeNotification('setStatusBarError');
-
-            return;
-          }
-
-          options.path = stylelintPath;
-
-          const versionInfo = await this.getVersionInfo(stylelintPath);
-          this.detectedStylelintVersion = versionInfo.version;
-          this.isUsingLocal = versionInfo.isLocal;
-        }
-        else {
-          this.safeNotification('setStatusBarOk');
-          const versionInfo = await this.getVersionInfo(null);
-          this.detectedStylelintVersion = versionInfo.version;
-          this.isUsingLocal = versionInfo.isLocal;
-        }
-      }
-      else {
-        // Untitled document: try to use workspace as cwd for config lookup
-        const folders = await this.getWorkspaceFolders();
-
-        if (folders && folders.length > 0) {
-          options.cwd = parseUri(folders[0].uri).fsPath;
-
-          if (this.useLocal) {
-            const localPath = join(options.cwd, 'node_modules', 'stylelint');
-
-            try {
-              await fsPromises.access(localPath);
-              options.path = localPath;
-
-              const versionInfo = await this.getVersionInfo(localPath);
-              this.detectedStylelintVersion = versionInfo.version;
-              this.isUsingLocal = true;
-            }
-            catch {
-              const versionInfo = await this.getVersionInfo(null);
-              this.detectedStylelintVersion = versionInfo.version;
-              this.isUsingLocal = false;
-            }
-          }
-          else {
-            const versionInfo = await this.getVersionInfo(null);
-            this.detectedStylelintVersion = versionInfo.version;
-            this.isUsingLocal = false;
-          }
-        }
-        else {
-          // No workspace: use bundled stylelint
-          const versionInfo = await this.getVersionInfo(null);
-          this.detectedStylelintVersion = versionInfo.version;
-          this.isUsingLocal = false;
-        }
-
-        this.safeNotification('setStatusBarOk');
-      }
+      this.safeNotification('setStatusBarOk');
 
       // Check if cancelled before proceeding
       if (token.cancelled) {
@@ -527,58 +525,13 @@ class StylelintServer {
     }
 
     try {
-      const documentPath = parseUri(document.uri).fsPath;
-      const isAbsolutePath = documentPath && isAbsolute(documentPath);
-      const options = { fix: true };
+      const {options, localNotFound} = await this.buildStylelintOptions(document, {fix: true});
 
-      if (this.config) {
-        options.config = this.config;
-      }
+      if (localNotFound) {
+        this.connection.console.log('Local stylelint not found.');
+        this.safeNotification('setStatusBarError');
 
-      if (isAbsolutePath) {
-        const folders = await this.getWorkspaceFolders();
-        const workspace = this.getWorkspaceForDocument(document.uri, folders);
-
-        if (workspace) {
-          options.cwd = parseUri(workspace.uri).fsPath;
-        }
-        else {
-          options.cwd = dirname(documentPath);
-        }
-
-        const {ignorePath, path: stylelintPath} = await this.resolveStylelintOptions(document.uri);
-
-        options.ignorePath = ignorePath;
-
-        if (this.useLocal) {
-          if (!stylelintPath) {
-            this.connection.console.log('Local stylelint not found.');
-            this.safeNotification('setStatusBarError');
-
-            return;
-          }
-          options.path = stylelintPath;
-        }
-      }
-      else {
-        // Untitled document: try to use workspace for config lookup and local stylelint
-        const folders = await this.getWorkspaceFolders();
-
-        if (folders && folders.length > 0) {
-          options.cwd = parseUri(folders[0].uri).fsPath;
-
-          if (this.useLocal) {
-            const localPath = join(options.cwd, 'node_modules', 'stylelint');
-
-            try {
-              await fsPromises.access(localPath);
-              options.path = localPath;
-            }
-            catch {
-              // Local stylelint not found, use bundled
-            }
-          }
-        }
+        return;
       }
 
       const originalText = document.getText();
@@ -813,55 +766,10 @@ function startServer() {
     const document = event.document;
 
     try {
-      const options = { fix: true };
+      const {options, localNotFound} = await server.buildStylelintOptions(document, {fix: true});
 
-      if (server.config) {
-        options.config = server.config;
-      }
-
-      const documentPath = parseUri(document.uri).fsPath;
-      const isAbsolutePath = documentPath && isAbsolute(documentPath);
-
-      if (isAbsolutePath) {
-        const folders = await server.getWorkspaceFolders();
-        const workspace = server.getWorkspaceForDocument(document.uri, folders);
-
-        if (workspace) {
-          options.cwd = parseUri(workspace.uri).fsPath;
-        }
-        else {
-          options.cwd = dirname(documentPath);
-        }
-
-        const {ignorePath, path: stylelintPath} = await server.resolveStylelintOptions(document.uri);
-
-        options.ignorePath = ignorePath;
-
-        if (server.useLocal) {
-          if (!stylelintPath) {
-            return [];
-          }
-          options.path = stylelintPath;
-        }
-      }
-      else {
-        const folders = await server.getWorkspaceFolders();
-
-        if (folders && folders.length > 0) {
-          options.cwd = parseUri(folders[0].uri).fsPath;
-
-          if (server.useLocal) {
-            const localPath = join(options.cwd, 'node_modules', 'stylelint');
-
-            try {
-              await fsPromises.access(localPath);
-              options.path = localPath;
-            }
-            catch {
-              // Local stylelint not found, use bundled
-            }
-          }
-        }
+      if (localNotFound) {
+        return [];
       }
 
       const {fixedCode} = await stylelintVSCode(document, options);
