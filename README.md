@@ -164,24 +164,6 @@ Automatically fix all auto-fixable stylelint issues when saving a file.
 
 **Note**: This setting applies fixes to the entire file on save. For more granular control, use [Quick Fix](#auto-fix-and-quick-fix) instead.
 
-#### stylelint.configOverrides
-
-Type: `Object`
-Default: `null`
-
-Set stylelint [`configOverrides`](https://github.com/stylelint/stylelint/blob/main/docs/user-guide/node-api.md#configoverrides) option. This partially overrides the existing configuration loaded from config files.
-
-**Example**:
-```json
-{
-  "stylelint.configOverrides": {
-    "rules": {
-      "indentation": 4
-    }
-  }
-}
-```
-
 #### stylelint.config
 
 Type: `Object`
@@ -189,7 +171,7 @@ Default: `null`
 
 Set stylelint [`config`](https://github.com/stylelint/stylelint/blob/main/docs/user-guide/node-api.md#config) option.
 
-**Important**: When this option is set, stylelint **will not** load configuration files (`.stylelintrc`, `stylelint.config.js`, etc.). Use `configOverrides` if you want to extend an existing configuration instead.
+**Important**: When this option is set, stylelint **will not** load configuration files (`.stylelintrc`, `stylelint.config.js`, etc.).
 
 #### stylelint.useLocal
 

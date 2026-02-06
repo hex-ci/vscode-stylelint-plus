@@ -76,14 +76,6 @@
           "default": null,
           "description": "A stylelint configuration object."
         },
-        "stylelint.configOverrides": {
-          "type": [
-            "object",
-            "null"
-          ],
-          "default": null,
-          "description": "A partial stylelint config whose properties override the existing ones."
-        },
         "stylelint.useLocal": {
           "type": "boolean",
           "default": false,

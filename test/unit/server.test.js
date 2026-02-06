@@ -695,22 +695,6 @@ describe('Server', () => {
       assert.deepEqual(callArgs[1].config, { rules: { 'color-no-invalid-hex': true } });
     });
 
-    it('should use configOverrides when provided', async () => {
-      const server = new StylelintServer(connectionMock, documentsMock);
-      server.configOverrides = { rules: { 'block-no-empty': false } };
-
-      server.resolveStylelintOptions = sinon.stub().resolves({ ignorePath: '/test/.stylelintignore' });
-      stylelintVSCodeStub.resolves({ diagnostics: [], ruleMetadata: {} });
-
-      const document = { uri: 'file:///test.css', getText: () => 'css' };
-
-      await server.validate(document);
-
-      // Verify stylelintVSCode was called with configOverrides
-      const callArgs = stylelintVSCodeStub.getCall(0).args;
-      assert.deepEqual(callArgs[1].configOverrides, { rules: { 'block-no-empty': false } });
-    });
-
     it('should handle validation with local stylelint path', async () => {
       const server = new StylelintServer(connectionMock, documentsMock);
       server.useLocal = true;
@@ -1161,24 +1145,6 @@ describe('Server', () => {
       await server.executeAutofix('file:///test.css');
 
       // Verify lint was called with config
-      const lintCall = loadStylelintStub.getCall(0);
-      assert.isDefined(lintCall);
-    });
-
-    it('should use configOverrides in autofix when provided', async () => {
-      const server = new StylelintServer(connectionMock, documentsMock);
-      server.configOverrides = { rules: { 'block-no-empty': false } };
-
-      const document = { uri: 'file:///test.css', getText: () => 'css content' };
-      documentsMock.get.returns(document);
-
-      server.resolveStylelintOptions = sinon.stub().resolves({});
-      loadStylelintStub.resolves({ lint: sinon.stub().resolves({}) });
-      fsPromisesStub.readFile.resolves('fixed content');
-
-      await server.executeAutofix('file:///test.css');
-
-      // Verify lint was called with configOverrides
       const lintCall = loadStylelintStub.getCall(0);
       assert.isDefined(lintCall);
     });
@@ -1722,7 +1688,6 @@ describe('Server', () => {
         settings: {
           stylelint: {
             config: { rules: {} },
-            configOverrides: { rules: {} },
             autoFixOnSave: true,
             useLocal: false,
             disableErrorMessage: false
@@ -1731,7 +1696,6 @@ describe('Server', () => {
       });
 
       assert.deepEqual(server.config, { rules: {} });
-      assert.deepEqual(server.configOverrides, { rules: {} });
       assert.equal(server.autoFixOnSave, true);
       assert.equal(server.useLocal, false);
       assert.equal(server.disableErrorMessage, false);

@@ -52,7 +52,6 @@ class StylelintServer {
 
     // Configuration
     this.config = null;
-    this.configOverrides = null;
     this.autoFixOnSave = false;
     this.useLocal = false;
     this.disableErrorMessage = false;
@@ -390,10 +389,6 @@ class StylelintServer {
         options.config = this.config;
       }
 
-      if (this.configOverrides) {
-        options.configOverrides = this.configOverrides;
-      }
-
       const documentPath = parseUri(document.uri).fsPath;
       const isAbsolutePath = documentPath && require('path').isAbsolute(documentPath);
 
@@ -590,10 +585,6 @@ class StylelintServer {
 
       if (this.config) {
         options.config = this.config;
-      }
-
-      if (this.configOverrides) {
-        options.configOverrides = this.configOverrides;
       }
 
       if (isAbsolutePath) {
@@ -867,7 +858,6 @@ function startServer() {
     const settings = params?.settings;
     const stylelintSettings = settings?.stylelint || {};
     server.config = stylelintSettings.config;
-    server.configOverrides = stylelintSettings.configOverrides;
     server.autoFixOnSave = stylelintSettings.autoFixOnSave;
     server.useLocal = stylelintSettings.useLocal;
     server.disableErrorMessage = stylelintSettings.disableErrorMessage;
