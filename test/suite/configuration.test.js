@@ -1,18 +1,14 @@
 'use strict';
 
 const { assert } = require('chai');
-const { extensions, workspace, window, languages, ConfigurationTarget } = require('vscode');
+const { extensions, workspace, window, ConfigurationTarget } = require('vscode');
 const pWaitFor = require('p-wait-for').default;
-const { join } = require('path');
-const fs = require('fs');
+const helper = require('./helper');
 
 describe('Configuration Integration Tests', () => {
-  const tempDir = join(__dirname, 'tmp');
+  const tempDir = helper.createIsolatedTempDir('configuration');
+  const testFiles = [];
   let vscodeStylelint;
-
-  function ensureTempDir() {
-    fs.mkdirSync(tempDir, { recursive: true });
-  }
 
   before(async () => {
     vscodeStylelint = extensions.getExtension('hex-ci.stylelint-plus');
@@ -20,36 +16,28 @@ describe('Configuration Integration Tests', () => {
   });
 
   afterEach(async () => {
-    // Reset configuration
-    const config = workspace.getConfiguration('stylelint');
-    await config.update('enable', undefined, ConfigurationTarget.Global);
+    helper.cleanupFiles(testFiles);
+    await helper.resetConfig(['enable', 'config']);
   });
 
   it('should clear diagnostics when disabled', async () => {
-    ensureTempDir();
-    const testFileName = join(tempDir, `test-${Math.floor(Math.random() * 100000)}.css`);
-
-    fs.writeFileSync(testFileName, 'body {');
-
-    afterEach(function () {
-      if (fs.existsSync(testFileName)) {
-        fs.unlinkSync(testFileName);
+    // Explicitly set config so diagnostics come from a known rule, not project config
+    await workspace.getConfiguration('stylelint').update('config', {
+      rules: {
+        'block-no-empty': true
       }
-    });
+    }, ConfigurationTarget.Global);
+
+    const testFileName = helper.createTestFile(tempDir, testFiles, 'disable', 'css', 'a {}');
 
     // 1. Open a file with errors
     const document = await workspace.openTextDocument(testFileName);
-
     await window.showTextDocument(document);
 
     // 2. Wait for diagnostics
-    await pWaitFor(() => {
-      const diagnostics = languages.getDiagnostics(document.uri);
-      const stylelintDiagnostics = diagnostics.filter(d => d.source === 'stylelint');
-      return stylelintDiagnostics.length > 0;
-    }, { timeout: 10000 });
+    await helper.waitForStylelintDiagnostics(document);
 
-    const diagnosticsBefore = languages.getDiagnostics(document.uri).filter(d => d.source === 'stylelint');
+    const diagnosticsBefore = helper.getStylelintDiagnostics(document);
     assert.isNotEmpty(diagnosticsBefore);
 
     // 3. Disable the extension via configuration
@@ -57,12 +45,10 @@ describe('Configuration Integration Tests', () => {
 
     // 4. Wait for diagnostics to be cleared
     await pWaitFor(() => {
-      const diagnostics = languages.getDiagnostics(document.uri);
-      const stylelintDiagnostics = diagnostics.filter(d => d.source === 'stylelint');
-      return stylelintDiagnostics.length === 0;
+      return helper.getStylelintDiagnostics(document).length === 0;
     }, { timeout: 5000 });
 
-    const diagnosticsAfter = languages.getDiagnostics(document.uri).filter(d => d.source === 'stylelint');
+    const diagnosticsAfter = helper.getStylelintDiagnostics(document);
     assert.isEmpty(diagnosticsAfter, 'Diagnostics should be cleared when extension is disabled');
   });
 });

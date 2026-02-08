@@ -1,19 +1,16 @@
 'use strict';
 
 const { assert } = require('chai');
-const { extensions, workspace, window, languages, ConfigurationTarget } = require('vscode');
+const { extensions, workspace, window, ConfigurationTarget } = require('vscode');
 const pWaitFor = require('p-wait-for').default;
 const { join } = require('path');
 const fs = require('fs');
+const helper = require('./helper');
 
 describe('Config File Changes Integration Tests', () => {
-  const tempDir = join(__dirname, 'tmp');
+  const tempDir = helper.createIsolatedTempDir('config-file-changes');
   const testFiles = [];
   const configFiles = [];
-
-  function ensureTempDir() {
-    fs.mkdirSync(tempDir, { recursive: true });
-  }
 
   before(async () => {
     const vscodeStylelint = extensions.getExtension('hex-ci.stylelint-plus');
@@ -21,32 +18,16 @@ describe('Config File Changes Integration Tests', () => {
   });
 
   afterEach(async function () {
-    for (const testFile of testFiles) {
-      if (fs.existsSync(testFile)) {
-        fs.unlinkSync(testFile);
-      }
-    }
-    testFiles.length = 0;
-
-    for (const configFile of configFiles) {
-      if (fs.existsSync(configFile)) {
-        fs.unlinkSync(configFile);
-      }
-    }
-    configFiles.length = 0;
-
-    await workspace.getConfiguration('stylelint').update('config', undefined, ConfigurationTarget.Global);
-    await workspace.getConfiguration('stylelint').update('useLocal', undefined, ConfigurationTarget.Global);
+    helper.cleanupFiles(testFiles);
+    helper.cleanupFiles(configFiles);
+    await helper.resetConfig(['config', 'useLocal']);
   });
 
   it('should handle config file creation and validate new documents', async () => {
     const vscodeStylelint = extensions.getExtension('hex-ci.stylelint-plus');
 
-    ensureTempDir();
-    const activationFileName = join(tempDir, `test-${Math.floor(Math.random() * 100000)}.css`);
-    testFiles.push(activationFileName);
-
-    fs.writeFileSync(activationFileName, 'a { color: red; }');
+    // Open a CSS file to activate the extension
+    const activationFileName = helper.createTestFile(tempDir, testFiles, 'activation', 'css', 'a { color: red; }');
 
     const activationDocument = await workspace.openTextDocument(activationFileName);
     await window.showTextDocument(activationDocument);
@@ -55,7 +36,7 @@ describe('Config File Changes Integration Tests', () => {
 
     assert.isTrue(vscodeStylelint.isActive, 'Extension should be active');
 
-    ensureTempDir();
+    // Create a .stylelintrc.json in the isolated temp dir
     const configFileName = join(tempDir, '.stylelintrc.json');
     configFiles.push(configFileName);
 
@@ -70,25 +51,42 @@ describe('Config File Changes Integration Tests', () => {
     assert.isTrue(vscodeStylelint.isActive,
       'Extension should handle presence of .stylelintrc.json file');
 
-    ensureTempDir();
-    const testFileName = join(tempDir, `test-${Math.floor(Math.random() * 100000)}.css`);
-    testFiles.push(testFileName);
-
-    fs.writeFileSync(testFileName, 'a {}');
+    // Open a new CSS file that violates the rule
+    const testFileName = helper.createTestFile(tempDir, testFiles, 'with-config', 'css', 'a {}');
 
     const document = await workspace.openTextDocument(testFileName);
     await window.showTextDocument(document);
 
-    await pWaitFor(() => {
-      const diagnostics = languages.getDiagnostics(document.uri);
-      const stylelintDiagnostics = diagnostics.filter(d => d.source === 'stylelint');
-      return stylelintDiagnostics.length > 0;
-    }, { timeout: 10000 });
+    await helper.waitForStylelintDiagnostics(document);
 
-    const stylelintDiagnostics = languages.getDiagnostics(document.uri)
-      .filter(d => d.source === 'stylelint');
+    const stylelintDiagnostics = helper.getStylelintDiagnostics(document);
 
     assert.isNotEmpty(stylelintDiagnostics,
       'Should detect errors when config file exists before document is opened');
+  });
+
+  it('should propagate config changes to server via LSP', async () => {
+    // Tests that changing stylelint.config in VS Code settings propagates to the language server
+    const testFileName = helper.createTestFile(tempDir, testFiles, 'config-propagation', 'css', 'a {}');
+
+    const document = await workspace.openTextDocument(testFileName);
+    await window.showTextDocument(document);
+
+    // Wait without config — no rule-based diagnostics expected
+    await new Promise(resolve => setTimeout(resolve, 1000));
+
+    // Now dynamically set config
+    await workspace.getConfiguration('stylelint').update('config', {
+      rules: {
+        'block-no-empty': true
+      }
+    }, ConfigurationTarget.Global);
+
+    await helper.waitForStylelintDiagnostics(document);
+
+    const stylelintDiagnostics = helper.getStylelintDiagnostics(document);
+
+    assert.isNotEmpty(stylelintDiagnostics,
+      'Config change should be propagated to server and result in diagnostics');
   });
 });

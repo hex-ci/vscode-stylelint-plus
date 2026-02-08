@@ -1,77 +1,65 @@
 'use strict';
 
 const { assert } = require('chai');
-const { extensions, workspace, window, languages } = require('vscode');
-const pWaitFor = require('p-wait-for').default;
-const { join } = require('path');
-const fs = require('fs');
+const { extensions, workspace, window, ConfigurationTarget } = require('vscode');
+const helper = require('./helper');
 
 describe('Diagnostics Integration Tests', () => {
-  const tempDir = join(__dirname, 'tmp');
+  const tempDir = helper.createIsolatedTempDir('diagnostics');
   const testFiles = [];
-
-  function ensureTempDir() {
-    fs.mkdirSync(tempDir, { recursive: true });
-  }
-
-  function trackTestFile(filePath) {
-    testFiles.push(filePath);
-    return filePath;
-  }
+  let vscodeStylelint;
 
   function getDiagnosticCases() {
     return [
       {
         label: 'CSS',
         extension: 'css',
-        content: 'body {',
+        content: 'a {}',
         assertionMessage: 'Should have stylelint diagnostics for CSS file'
       },
       {
         label: 'SCSS',
         extension: 'scss',
-        content: '$color: #ffffff;\na { color: $color; ',
+        content: '.parent {\n  .child {}\n}',
         assertionMessage: 'Should have stylelint diagnostics for SCSS file'
       }
     ];
   }
 
-  afterEach(function () {
-    for (const testFile of testFiles) {
-      if (fs.existsSync(testFile)) {
-        fs.unlinkSync(testFile);
-      }
-    }
-    testFiles.length = 0;
+  before(async () => {
+    vscodeStylelint = extensions.getExtension('hex-ci.stylelint-plus');
+    await vscodeStylelint.activate();
   });
 
-  it('should report syntax errors for supported styles', async () => {
-    const vscodeStylelint = extensions.getExtension('hex-ci.stylelint-plus');
+  afterEach(async function () {
+    helper.cleanupFiles(testFiles);
+    await helper.resetConfig(['config']);
+  });
+
+  it('should report rule violations for supported styles', async () => {
+    // Explicitly set config so we don't depend on any config file in the directory tree
+    await workspace.getConfiguration('stylelint').update('config', {
+      rules: {
+        'block-no-empty': true
+      }
+    }, ConfigurationTarget.Global);
 
     for (const testCase of getDiagnosticCases()) {
-      ensureTempDir();
-      const testFileName = trackTestFile(join(
-        tempDir,
-        `diagnostics-${testCase.label.toLowerCase()}-${Math.floor(Math.random() * 100000)}.${testCase.extension}`
-      ));
-
-      fs.writeFileSync(testFileName, testCase.content);
+      const testFileName = helper.createTestFile(
+        tempDir, testFiles,
+        `diagnostics-${testCase.label.toLowerCase()}`,
+        testCase.extension,
+        testCase.content
+      );
 
       const document = await workspace.openTextDocument(testFileName);
       await window.showTextDocument(document);
 
-      await pWaitFor(() => vscodeStylelint.isActive, { timeout: 5000 });
+      await helper.waitForStylelintDiagnostics(document);
 
-      await pWaitFor(() => {
-        const diagnostics = languages.getDiagnostics(document.uri);
-        const stylelintDiagnostics = diagnostics.filter(d => d.source === 'stylelint');
-        return stylelintDiagnostics.length > 0;
-      }, { timeout: 10000 });
-
-      const diagnostics = languages.getDiagnostics(document.uri);
-      const stylelintDiagnostics = diagnostics.filter(d => d.source === 'stylelint');
-      assert.isNotEmpty(stylelintDiagnostics, testCase.assertionMessage);
-      assert.equal(stylelintDiagnostics[0].source, 'stylelint');
+      const diagnostics = helper.getStylelintDiagnostics(document);
+      assert.isNotEmpty(diagnostics, testCase.assertionMessage);
+      assert.equal(diagnostics[0].source, 'stylelint');
     }
   });
 });

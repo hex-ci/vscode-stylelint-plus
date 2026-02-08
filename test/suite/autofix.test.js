@@ -7,27 +7,16 @@ const {
   window,
   commands,
   ConfigurationTarget,
-  languages,
   WorkspaceEdit,
   Position
 } = require('vscode');
 const pWaitFor = require('p-wait-for').default;
-const { join } = require('path');
-const fs = require('fs');
+const helper = require('./helper');
 
 describe('Autofix Integration Tests', () => {
   let vscodeStylelint;
-  const tempDir = join(__dirname, 'tmp');
+  const tempDir = helper.createIsolatedTempDir('autofix');
   const testFiles = [];
-
-  function ensureTempDir() {
-    fs.mkdirSync(tempDir, { recursive: true });
-  }
-
-  function trackTestFile(filePath) {
-    testFiles.push(filePath);
-    return filePath;
-  }
 
   before(async () => {
     vscodeStylelint = extensions.getExtension('hex-ci.stylelint-plus');
@@ -35,15 +24,8 @@ describe('Autofix Integration Tests', () => {
   });
 
   afterEach(async () => {
-    for (const testFile of testFiles) {
-      if (fs.existsSync(testFile)) {
-        fs.unlinkSync(testFile);
-      }
-    }
-    testFiles.length = 0;
-
-    await workspace.getConfiguration('stylelint').update('config', undefined, ConfigurationTarget.Global);
-    await workspace.getConfiguration('stylelint').update('autoFixOnSave', undefined, ConfigurationTarget.Global);
+    helper.cleanupFiles(testFiles);
+    await helper.resetConfig(['config', 'autoFixOnSave']);
   });
 
   it('should validate config and support autofix workflows', async () => {
@@ -56,21 +38,14 @@ describe('Autofix Integration Tests', () => {
       }
     }, ConfigurationTarget.Global);
 
-    ensureTempDir();
-    const validationFileName = trackTestFile(join(tempDir, `test-${Math.floor(Math.random() * 100000)}.css`));
-    fs.writeFileSync(validationFileName, 'a {}');
+    const validationFileName = helper.createTestFile(tempDir, testFiles, 'validation', 'css', 'a {}');
 
     const validationDocument = await workspace.openTextDocument(validationFileName);
     await window.showTextDocument(validationDocument);
 
-    await pWaitFor(() => {
-      const diagnostics = languages.getDiagnostics(validationDocument.uri);
-      const stylelintDiagnostics = diagnostics.filter(d => d.source === 'stylelint');
-      return stylelintDiagnostics.length > 0;
-    }, { timeout: 30000 });
+    await helper.waitForStylelintDiagnostics(validationDocument, 30000);
 
-    const validationDiagnostics = languages.getDiagnostics(validationDocument.uri)
-      .filter(d => d.source === 'stylelint');
+    const validationDiagnostics = helper.getStylelintDiagnostics(validationDocument);
 
     assert.isNotEmpty(validationDiagnostics);
     assert.include(validationDiagnostics[0].message, 'block-no-empty');
@@ -81,18 +56,12 @@ describe('Autofix Integration Tests', () => {
       }
     }, ConfigurationTarget.Global);
 
-    ensureTempDir();
-    const autofixFileName = trackTestFile(join(tempDir, `test-${Math.floor(Math.random() * 100000)}.css`));
-    fs.writeFileSync(autofixFileName, 'a { top: 0px; }');
+    const autofixFileName = helper.createTestFile(tempDir, testFiles, 'autofix', 'css', 'a { top: 0px; }');
 
     const autofixDocument = await workspace.openTextDocument(autofixFileName);
     await window.showTextDocument(autofixDocument);
 
-    await pWaitFor(() => {
-      const diagnostics = languages.getDiagnostics(autofixDocument.uri);
-      const stylelintDiagnostics = diagnostics.filter(d => d.source === 'stylelint');
-      return stylelintDiagnostics.length > 0;
-    }, { timeout: 30000 });
+    await helper.waitForStylelintDiagnostics(autofixDocument, 30000);
 
     await commands.executeCommand('stylelint.executeAutofix');
 
@@ -110,18 +79,12 @@ describe('Autofix Integration Tests', () => {
       }
     }, ConfigurationTarget.Global);
 
-    ensureTempDir();
-    const autoSaveFileName = trackTestFile(join(tempDir, `test-${Math.floor(Math.random() * 100000)}.css`));
-    fs.writeFileSync(autoSaveFileName, 'a { top: 0px; }');
+    const autoSaveFileName = helper.createTestFile(tempDir, testFiles, 'autosave', 'css', 'a { top: 0px; }');
 
     const autoSaveDocument = await workspace.openTextDocument(autoSaveFileName);
     await window.showTextDocument(autoSaveDocument);
 
-    await pWaitFor(() => {
-      const diagnostics = languages.getDiagnostics(autoSaveDocument.uri);
-      const stylelintDiagnostics = diagnostics.filter(d => d.source === 'stylelint');
-      return stylelintDiagnostics.length > 0;
-    }, { timeout: 3000 });
+    await helper.waitForStylelintDiagnostics(autoSaveDocument, 3000);
 
     await new Promise(resolve => setTimeout(resolve, 1000));
 

@@ -6,5 +6,4 @@ dist/
 .nyc_output/
 .nyc_output_json/
 package-lock.json
-test/suite/tmp/
 *.local.md

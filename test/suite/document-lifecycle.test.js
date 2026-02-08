@@ -1,26 +1,12 @@
 'use strict';
 
 const { assert } = require('chai');
-const { extensions, workspace, window, languages, ConfigurationTarget, commands, Range, Position } = require('vscode');
-const pWaitFor = require('p-wait-for').default;
-const { join } = require('path');
-const fs = require('fs');
-
-function getStylelintDiagnostics(document) {
-  return languages.getDiagnostics(document.uri).filter(d => d.source === 'stylelint');
-}
-
-async function waitForStylelintDiagnostics(document, timeout = 10000) {
-  await pWaitFor(() => getStylelintDiagnostics(document).length > 0, { timeout });
-}
+const { extensions, workspace, window, ConfigurationTarget, commands, Range, Position } = require('vscode');
+const helper = require('./helper');
 
 describe('Document Lifecycle Integration Tests', () => {
-  const tempDir = join(__dirname, 'tmp');
+  const tempDir = helper.createIsolatedTempDir('document-lifecycle');
   const testFiles = [];
-
-  function ensureTempDir() {
-    fs.mkdirSync(tempDir, { recursive: true });
-  }
 
   before(async () => {
     const vscodeStylelint = extensions.getExtension('hex-ci.stylelint-plus');
@@ -28,14 +14,8 @@ describe('Document Lifecycle Integration Tests', () => {
   });
 
   afterEach(async function () {
-    for (const testFile of testFiles) {
-      if (fs.existsSync(testFile)) {
-        fs.unlinkSync(testFile);
-      }
-    }
-    testFiles.length = 0;
-
-    await workspace.getConfiguration('stylelint').update('config', undefined, ConfigurationTarget.Global);
+    helper.cleanupFiles(testFiles);
+    await helper.resetConfig(['config']);
   });
 
   it('should validate on document open and change', async () => {
@@ -45,33 +25,25 @@ describe('Document Lifecycle Integration Tests', () => {
       }
     }, ConfigurationTarget.Global);
 
-    ensureTempDir();
-    const openFileName = join(tempDir, `test-open-${Math.floor(Math.random() * 100000)}.css`);
-    testFiles.push(openFileName);
-
-    fs.writeFileSync(openFileName, 'a {}');
+    const openFileName = helper.createTestFile(tempDir, testFiles, 'open', 'css', 'a {}');
 
     const openDocument = await workspace.openTextDocument(openFileName);
     await window.showTextDocument(openDocument);
 
-    await waitForStylelintDiagnostics(openDocument);
+    await helper.waitForStylelintDiagnostics(openDocument);
 
-    let stylelintDiagnostics = getStylelintDiagnostics(openDocument);
+    let stylelintDiagnostics = helper.getStylelintDiagnostics(openDocument);
     assert.isNotEmpty(stylelintDiagnostics, 'Should validate on document open');
     assert.include(stylelintDiagnostics[0].message, 'block-no-empty');
 
-    ensureTempDir();
-    const changeFileName = join(tempDir, `test-change-${Math.floor(Math.random() * 100000)}.css`);
-    testFiles.push(changeFileName);
-
-    fs.writeFileSync(changeFileName, 'a { color: red; }');
+    const changeFileName = helper.createTestFile(tempDir, testFiles, 'change', 'css', 'a { color: red; }');
 
     const changeDocument = await workspace.openTextDocument(changeFileName);
     const editor = await window.showTextDocument(changeDocument);
 
     await new Promise(resolve => setTimeout(resolve, 500));
 
-    stylelintDiagnostics = getStylelintDiagnostics(changeDocument);
+    stylelintDiagnostics = helper.getStylelintDiagnostics(changeDocument);
     assert.isEmpty(stylelintDiagnostics, 'Should have no errors with valid content');
 
     await editor.edit(editBuilder => {
@@ -81,9 +53,9 @@ describe('Document Lifecycle Integration Tests', () => {
       editBuilder.replace(fullRange, 'a {}');
     });
 
-    await waitForStylelintDiagnostics(changeDocument);
+    await helper.waitForStylelintDiagnostics(changeDocument);
 
-    stylelintDiagnostics = getStylelintDiagnostics(changeDocument);
+    stylelintDiagnostics = helper.getStylelintDiagnostics(changeDocument);
     assert.isNotEmpty(stylelintDiagnostics, 'Should validate on content change');
     assert.include(stylelintDiagnostics[0].message, 'block-no-empty');
   });
@@ -95,18 +67,14 @@ describe('Document Lifecycle Integration Tests', () => {
       }
     }, ConfigurationTarget.Global);
 
-    ensureTempDir();
-    const closeFileName = join(tempDir, `test-close-${Math.floor(Math.random() * 100000)}.css`);
-    testFiles.push(closeFileName);
-
-    fs.writeFileSync(closeFileName, 'a {}');
+    const closeFileName = helper.createTestFile(tempDir, testFiles, 'close', 'css', 'a {}');
 
     const closeDocument = await workspace.openTextDocument(closeFileName);
     await window.showTextDocument(closeDocument);
 
-    await waitForStylelintDiagnostics(closeDocument);
+    await helper.waitForStylelintDiagnostics(closeDocument);
 
-    const closeDiagnostics = getStylelintDiagnostics(closeDocument);
+    const closeDiagnostics = helper.getStylelintDiagnostics(closeDocument);
     assert.isNotEmpty(closeDiagnostics, 'Should have diagnostics before closing');
 
     await commands.executeCommand('workbench.action.closeActiveEditor');
@@ -116,11 +84,7 @@ describe('Document Lifecycle Integration Tests', () => {
     assert.isTrue(extensions.getExtension('hex-ci.stylelint-plus').isActive,
       'Extension should remain active after document close');
 
-    ensureTempDir();
-    const rapidFileName = join(tempDir, `test-rapid-${Math.floor(Math.random() * 100000)}.css`);
-    testFiles.push(rapidFileName);
-
-    fs.writeFileSync(rapidFileName, 'a { color: red; }');
+    const rapidFileName = helper.createTestFile(tempDir, testFiles, 'rapid', 'css', 'a { color: red; }');
 
     const rapidDocument = await workspace.openTextDocument(rapidFileName);
     const editor = await window.showTextDocument(rapidDocument);
@@ -141,9 +105,9 @@ describe('Document Lifecycle Integration Tests', () => {
       editBuilder.replace(fullRange, 'a {}');
     });
 
-    await waitForStylelintDiagnostics(rapidDocument);
+    await helper.waitForStylelintDiagnostics(rapidDocument);
 
-    const rapidDiagnostics = getStylelintDiagnostics(rapidDocument);
+    const rapidDiagnostics = helper.getStylelintDiagnostics(rapidDocument);
     assert.isNotEmpty(rapidDiagnostics, 'Should handle rapid document changes and show final state');
   });
 });

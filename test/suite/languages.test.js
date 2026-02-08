@@ -3,21 +3,15 @@
 const { assert } = require('chai');
 const { extensions, workspace, window } = require('vscode');
 const pWaitFor = require('p-wait-for').default;
-const { join } = require('path');
-const fs = require('fs');
+const helper = require('./helper');
 
 describe('Languages Integration Tests', () => {
-  const tempDir = join(__dirname, 'tmp');
+  const tempDir = helper.createIsolatedTempDir('languages');
   const testFiles = [];
 
-  function ensureTempDir() {
-    fs.mkdirSync(tempDir, { recursive: true });
-  }
-
-  function trackTestFile(filePath) {
-    testFiles.push(filePath);
-    return filePath;
-  }
+  afterEach(function () {
+    helper.cleanupFiles(testFiles);
+  });
 
   function getActivationCases() {
     return [
@@ -84,26 +78,16 @@ describe('Languages Integration Tests', () => {
     ];
   }
 
-  afterEach(function () {
-    for (const testFile of testFiles) {
-      if (fs.existsSync(testFile)) {
-        fs.unlinkSync(testFile);
-      }
-    }
-    testFiles.length = 0;
-  });
-
   it('should activate on supported languages', async () => {
     const vscodeStylelint = extensions.getExtension('hex-ci.stylelint-plus');
 
     for (const testCase of getActivationCases()) {
-      ensureTempDir();
-      const testFileName = trackTestFile(join(
-        tempDir,
-        `test-${testCase.label.toLowerCase()}-${Math.floor(Math.random() * 100000)}.${testCase.extension}`
-      ));
-
-      fs.writeFileSync(testFileName, testCase.content);
+      const testFileName = helper.createTestFile(
+        tempDir, testFiles,
+        testCase.label.toLowerCase(),
+        testCase.extension,
+        testCase.content
+      );
 
       const document = await workspace.openTextDocument(testFileName);
       await window.showTextDocument(document);
