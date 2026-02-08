@@ -1,13 +1,33 @@
 # vscode-stylelint-plus
 
 [![Visual Studio Marketplace Version](https://img.shields.io/visual-studio-marketplace/v/hex-ci.stylelint-plus)](https://marketplace.visualstudio.com/items?itemName=hex-ci.stylelint-plus)
-[![codecov](https://codecov.io/github/hex-ci/vscode-stylelint-plus/branch/main/graph/badge.svg?token=AiK4XitPgu)](https://codecov.io/github/hex-ci/vscode-stylelint-plus)
-[![Visual Studio Marketplace Downloads](https://img.shields.io/visual-studio-marketplace/d/hex-ci.stylelint-plus)](https://marketplace.visualstudio.com/items?itemName=hex-ci.stylelint-plus)
 [![Visual Studio Marketplace Installs](https://img.shields.io/visual-studio-marketplace/i/hex-ci.stylelint-plus)](https://marketplace.visualstudio.com/items?itemName=hex-ci.stylelint-plus)
+[![codecov](https://codecov.io/github/hex-ci/vscode-stylelint-plus/branch/main/graph/badge.svg?token=AiK4XitPgu)](https://codecov.io/github/hex-ci/vscode-stylelint-plus)
 
-A [Visual Studio Code](https://code.visualstudio.com/) extension to lint [CSS](https://www.w3.org/Style/CSS/)/[SCSS](https://sass-lang.com/documentation/file.SASS_REFERENCE.html#syntax)/[Less](http://lesscss.org/) with [stylelint](https://stylelint.io/), support auto fix on save.
+A [Visual Studio Code](https://code.visualstudio.com/) extension to lint [CSS](https://www.w3.org/Style/CSS/)/[SCSS](https://sass-lang.com/documentation/file.SASS_REFERENCE.html#syntax)/[Less](http://lesscss.org/) with [stylelint](https://stylelint.io/), with built-in auto-fix on save and zero-config setup.
+
+## ✨ Highlights
+
+- 🚀 **Zero-config ready** — Bundled stylelint v15, works out of the box without installing anything extra
+- 💾 **Auto-fix on save** — Native `onWillSaveWaitUntil` integration, no need to configure `codeActionsOnSave`
+- 💡 **Quick Fix support** — Fix individual issues or all problems via the light bulb menu
+- 🌐 **20+ languages built-in** — CSS, SCSS, Less, Vue, Svelte, styled-components, HTML, Markdown, and more
+- 🔄 **Stylelint v14 – v17** — Automatic version detection with seamless CJS/ESM support
+- 📊 **Status bar indicator** — Real-time display of stylelint version and status
+- 🛡️ **CSS syntax fallback** — Catches syntax errors even without a stylelint config file
 
 ![screenshot](https://github.com/hex-ci/vscode-stylelint-plus/raw/main/screenshot.png)
+
+## Why stylelint-plus?
+
+| Feature | stylelint-plus | Official vscode-stylelint |
+|---------|:-:|:-:|
+| Bundled stylelint (zero-config) | ✅ v15 included | ❌ Must install separately |
+| Auto-fix on save | ✅ Built-in setting | ⚙️ Requires `codeActionsOnSave` config |
+| Default language support | ✅ 20+ languages | ⚠️ CSS & PostCSS only |
+| Status bar version indicator | ✅ | ❌ |
+| CSS syntax fallback (no config) | ✅ | ❌ |
+| Stylelint version support | v14 – v17 | v14 – v17 |
 
 ## Installation
 
@@ -32,17 +52,17 @@ To prevent both [the editor built-in linters](https://code.visualstudio.com/docs
 
 ### Stylelint Version Support
 
-This extension supports **stylelint v15, v16, and v17** with automatic version detection.
+This extension supports **stylelint v14, v15, v16, and v17** with automatic version detection.
 
 #### Default Behavior (Bundled Version)
 
 - **Bundled**: stylelint v15.x (CommonJS)
-- **Works with**: All Node.js versions >= 20.0.0
+- **Works with**: All Node.js versions >= 18.0.0
 - **Enabled when**: `stylelint.useLocal` is `false` (default)
 
 #### Local Version (User-Installed)
 
-- **Supported**: v15.x, v16.x, v17.x
+- **Supported**: v14.x, v15.x, v16.x, v17.x
 - **Auto-detection**: Automatically detects and loads the correct version
 - **Enabled when**: `stylelint.useLocal` is `true`
 
@@ -117,7 +137,7 @@ If no stylelint configuration is found (no `.stylelintrc` or other config files)
 
 This allows you to catch syntax errors even before setting up full stylelint rules.
 
-### Document Validation
+### Supported Languages
 
 Once a user follows [the stylelint startup guide](https://github.com/stylelint/stylelint#getting-started) by creating a [configuration](https://stylelint.io/user-guide/configuration/) file or by editing [`stylelint.*` VSCode settings](#extension-settings), stylelint automatically validates documents with these [language identifiers](https://code.visualstudio.com/docs/languages/overview#_language-id):
 
@@ -182,7 +202,7 @@ Use the locally installed version of stylelint from your project's `node_modules
 
 **How it works**:
 - The extension searches upward from the current file's directory for `node_modules/stylelint`
-- Supports stylelint v15, v16, and v17 with automatic version detection
+- Supports stylelint v14, v15, v16, and v17 with automatic version detection
 - If local stylelint is not found, the extension will show an error status in the status bar
 
 #### stylelint.disableErrorMessage

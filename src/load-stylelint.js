@@ -7,7 +7,7 @@ const { pathToFileURL } = require('url');
 
 /**
  * Load stylelint module from specified path or bundled version.
- * Supports both CommonJS and ESM (stylelint v17+).
+ * Supports both CommonJS and ESM (stylelint v14-v16: CJS, v17+: ESM).
  *
  * @param {string} [modulePath] - Path to stylelint module (directory containing package.json)
  * @returns {Promise<Object>} The stylelint module

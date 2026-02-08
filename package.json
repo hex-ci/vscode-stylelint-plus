@@ -2,7 +2,7 @@
   "name": "stylelint-plus",
   "version": "1.3.1",
   "displayName": "stylelint-plus",
-  "description": "Modern CSS/SCSS/Less linter for vscode, support auto fix on save.",
+  "description": "Lint CSS, SCSS, Less and more with Stylelint — auto-fix on save, supports v14-v17, Vue, Svelte, and styled-components.",
   "publisher": "hex-ci",
   "repository": "https://github.com/hex-ci/vscode-stylelint-plus",
   "homepage": "https://github.com/hex-ci/vscode-stylelint-plus#readme",
@@ -15,17 +15,18 @@
   },
   "engines": {
     "vscode": ">=1.35.0",
-    "node": ">=20.0.0"
+    "node": ">=18.0.0"
   },
   "categories": [
-    "Linters"
+    "Linters",
+    "Formatters"
   ],
   "keywords": [
-    "lint",
-    "style",
     "stylelint",
-    "validation",
-    "check"
+    "css",
+    "scss",
+    "less",
+    "autofix"
   ],
   "activationEvents": [
     "onLanguage:css",

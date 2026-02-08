@@ -15,6 +15,7 @@ tsconfig.json
 .stylelintignore
 screenshot.png
 .nyc_output/
+.nyc_output_json/
 .github/
 fixture.css
 stylelint.config.js
