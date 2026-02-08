@@ -103,7 +103,21 @@ describe('Server Ignore Handling', () => {
 
     const options = await server.resolveStylelintOptions('file:///workspace/subdir/test.css');
 
-    // Should fallback to workspace root
+    // No .stylelintignore exists anywhere, ignorePath should be undefined
+    assert.isUndefined(options.ignorePath);
+  });
+
+  it('should find .stylelintignore at workspace root when not in subdirs', async () => {
+    const server = new StylelintServer(connectionMock, documentsMock);
+
+    connectionMock.workspace.getWorkspaceFolders.resolves([{ uri: 'file:///workspace' }]);
+
+    // Subdirectory doesn't have it, but workspace root does
+    fsPromisesStub.access.rejects(new Error('ENOENT'));
+    fsPromisesStub.access.withArgs(path.join('/workspace', '.stylelintignore')).resolves();
+
+    const options = await server.resolveStylelintOptions('file:///workspace/subdir/test.css');
+
     assert.equal(options.ignorePath, path.join('/workspace', '.stylelintignore'));
   });
 

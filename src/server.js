@@ -291,14 +291,14 @@ class StylelintServer {
       stopPath = findPkgDir(documentPath) || parse(documentPath).root;
     }
 
-    const normalizedStopPath = stopPath.replace(/[\/\\]+$/, '');
-    const normalizedDocDir = parse(documentPath).dir.replace(/[\/\\]+$/, '');
+    const normalizedStopPath = stopPath.replace(/[\/\\]+$/, '') || stopPath;
+    const normalizedDocDir = parse(documentPath).dir.replace(/[\/\\]+$/, '') || parse(documentPath).dir;
 
-    // Look for closest .stylelintignore up to stopPath
+    // Look for closest .stylelintignore up to and including stopPath
     let dir = normalizedDocDir;
-    let ignorePath = join(normalizedStopPath, '.stylelintignore');
+    let ignorePath;
 
-    while (dir && dir !== normalizedStopPath) {
+    while (dir) {
       const candidate = join(dir, '.stylelintignore');
 
       try {
@@ -310,6 +310,10 @@ class StylelintServer {
         // File doesn't exist, continue to parent
       }
 
+      if (dir === normalizedStopPath) {
+        break;
+      }
+
       const parentDir = parse(dir).dir;
 
       if (parentDir === dir) {
@@ -319,7 +323,11 @@ class StylelintServer {
       dir = parentDir;
     }
 
-    const result = {ignorePath};
+    const result = {};
+
+    if (ignorePath) {
+      result.ignorePath = ignorePath;
+    }
 
     if (this.useLocal) {
       let localDir;
@@ -378,7 +386,9 @@ class StylelintServer {
 
       const {ignorePath, path: stylelintPath} = await this.resolveStylelintOptions(document.uri);
 
-      options.ignorePath = ignorePath;
+      if (ignorePath) {
+        options.ignorePath = ignorePath;
+      }
 
       if (this.useLocal) {
         if (!stylelintPath) {

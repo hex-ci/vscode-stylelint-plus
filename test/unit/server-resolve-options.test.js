@@ -237,8 +237,23 @@ describe('Server resolveStylelintOptions', () => {
 
       const result = await server.resolveStylelintOptions('file:///some/deep/nested/path/test.css');
 
-      // Should complete without infinite loop, ignorePath defaults to root
-      assert.isDefined(result.ignorePath);
+      // No .stylelintignore found anywhere, ignorePath should be undefined
+      assert.isUndefined(result.ignorePath);
+    });
+
+    it('should stop at filesystem root when stopPath is not an ancestor', async () => {
+      const server = new StylelintServer(connectionMock, documentsMock);
+
+      connectionMock.workspace.getWorkspaceFolders.resolves([]);
+
+      // findPkgDir returns a non-ancestor path
+      findPkgDirStub.returns('/unrelated/path');
+
+      fsPromisesStub.access.rejects(new Error('Not found'));
+
+      const result = await server.resolveStylelintOptions('file:///a/b/test.css');
+
+      assert.isUndefined(result.ignorePath);
     });
   });
 

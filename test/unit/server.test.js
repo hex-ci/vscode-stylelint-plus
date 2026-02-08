@@ -578,6 +578,24 @@ describe('Server', () => {
       assert.equal(options.ignorePath, '/workspace/.stylelintignore');
     });
 
+    it('should not set ignorePath when resolveStylelintOptions returns none', async () => {
+      const server = new StylelintServer(connectionMock, documentsMock);
+      const document = {
+        uri: 'file:///workspace/test.css',
+        getText: () => 'a { color: red; }'
+      };
+
+      server.resolveStylelintOptions = sinon.stub().resolves({});
+
+      connectionMock.workspace.getWorkspaceFolders.resolves([
+        { uri: 'file:///workspace' }
+      ]);
+
+      const {options} = await server.buildStylelintOptions(document);
+
+      assert.isUndefined(options.ignorePath);
+    });
+
     it('should merge extraOptions into result', async () => {
       const server = new StylelintServer(connectionMock, documentsMock);
       const document = {
