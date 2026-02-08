@@ -288,17 +288,10 @@ describe('Extension Activation', () => {
     await clientInstanceMock.onReady.firstCall.returnValue;
 
     // Get handlers registered on client
-    const setStatusBarError = clientInstanceMock.onNotification.args.find(args => args[0] === 'setStatusBarError')[1];
     const versionDetected = clientInstanceMock.onNotification.args.find(args => args[0] === 'stylelint/versionDetected')[1];
 
-    // Trigger handlers
-    setStatusBarError();
-    // Check status bar text for error
-    assert.include(vscodeMock.window.createStatusBarItem().text, '$(error)');
-
-    // versionDetected with isFallback=false should restore ok status
+    // versionDetected with isFallback=false should show ok status
     versionDetected({ version: '1.2.3', isLocal: true, isFallback: false });
-    // Check status bar text for ok (no error icon)
     assert.notInclude(vscodeMock.window.createStatusBarItem().text, '$(error)');
 
     versionDetected({ version: '1.2.3', isLocal: true });
@@ -325,11 +318,6 @@ describe('Extension Activation', () => {
     assert.include(vscodeMock.window.createStatusBarItem().text, '$(warning)');
     assert.include(vscodeMock.window.createStatusBarItem().text, '(bundled)');
     assert.notInclude(vscodeMock.window.createStatusBarItem().text, ' v');
-
-    // Test error with version info
-    setStatusBarError();
-    assert.include(vscodeMock.window.createStatusBarItem().text, '$(error) Stylelint+');
-    assert.include(vscodeMock.window.createStatusBarItem().tooltip, 'Stylelint+ server stopped');
   });
 
   it('should ignore non-language activation events', () => {

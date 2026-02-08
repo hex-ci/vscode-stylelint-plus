@@ -141,8 +141,6 @@ class StylelintServer {
       );
     }
 
-    this.safeNotification('setStatusBarError');
-
     if (this.disableErrorMessage) {
       return;
     }

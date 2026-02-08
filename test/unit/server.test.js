@@ -287,7 +287,6 @@ describe('Server', () => {
 
       assert.isTrue(connectionMock.window.showErrorMessage.calledWith('stylelint: Reason 1'));
       assert.isTrue(connectionMock.window.showErrorMessage.calledWith('stylelint: Reason 2'));
-      assert.isTrue(connectionMock.sendNotification.calledWith('setStatusBarError'));
     });
 
     it('should handle config error (code 78)', () => {
@@ -322,7 +321,6 @@ describe('Server', () => {
       server.handleStylelintError(error, 'validation');
 
       assert.isFalse(connectionMock.window.showErrorMessage.called);
-      assert.isTrue(connectionMock.sendNotification.calledWith('setStatusBarError'));
     });
 
     it('should handle error without stack property', () => {

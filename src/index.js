@@ -44,21 +44,16 @@ const setStatusBar = (status = 'ok') => {
     return;
   }
 
-  const isOk = status === 'ok';
   const hasVersion = Boolean(versionInfo.version);
   const source = versionInfo.isLocal ? 'local' : 'bundled';
 
-  statusBarItem.text = isOk
-    ? hasVersion
-      ? `Stylelint+ (${source} v${versionInfo.version})`
-      : 'Stylelint+'
-    : '$(error) Stylelint+';
+  statusBarItem.text = hasVersion
+    ? `Stylelint+ (${source} v${versionInfo.version})`
+    : 'Stylelint+';
 
-  statusBarItem.tooltip = isOk
-    ? hasVersion
-      ? `Using ${source} stylelint ${versionInfo.version}`
-      : 'Stylelint+ server is running.'
-    : 'Stylelint+ server stopped.';
+  statusBarItem.tooltip = hasVersion
+    ? `Using ${source} stylelint ${versionInfo.version}`
+    : 'Stylelint+ server is running.';
 
   statusBarItem.show();
 };
@@ -113,10 +108,6 @@ module.exports.activate = ({subscriptions}) => {
 
   client.onReady()
     .then(() => {
-      client.onNotification('setStatusBarError', () => {
-        setStatusBar('error');
-      });
-
       client.onNotification('stylelint/versionDetected', (params) => {
         const {version, isLocal, isFallback} = params || {};
 
