@@ -289,7 +289,6 @@ describe('Extension Activation', () => {
 
     // Get handlers registered on client
     const setStatusBarError = clientInstanceMock.onNotification.args.find(args => args[0] === 'setStatusBarError')[1];
-    const setStatusBarOk = clientInstanceMock.onNotification.args.find(args => args[0] === 'setStatusBarOk')[1];
     const versionDetected = clientInstanceMock.onNotification.args.find(args => args[0] === 'stylelint/versionDetected')[1];
 
     // Trigger handlers
@@ -297,8 +296,9 @@ describe('Extension Activation', () => {
     // Check status bar text for error
     assert.include(vscodeMock.window.createStatusBarItem().text, '$(error)');
 
-    setStatusBarOk();
-    // Check status bar text for ok
+    // versionDetected with isFallback=false should restore ok status
+    versionDetected({ version: '1.2.3', isLocal: true, isFallback: false });
+    // Check status bar text for ok (no error icon)
     assert.notInclude(vscodeMock.window.createStatusBarItem().text, '$(error)');
 
     versionDetected({ version: '1.2.3', isLocal: true });
@@ -313,6 +313,18 @@ describe('Extension Activation', () => {
     // Test with undefined params
     versionDetected(undefined);
     // Should not crash, version info remains from previous call
+
+    // Test isFallback=true should show warn status bar
+    versionDetected({ version: '15.11.0', isLocal: false, isFallback: true });
+    assert.include(vscodeMock.window.createStatusBarItem().text, '$(warning)');
+    assert.include(vscodeMock.window.createStatusBarItem().text, 'bundled');
+    assert.include(vscodeMock.window.createStatusBarItem().tooltip, 'Local stylelint not found');
+
+    // Test isFallback=true with no version — should show warn without version number
+    versionDetected({ version: null, isLocal: false, isFallback: true });
+    assert.include(vscodeMock.window.createStatusBarItem().text, '$(warning)');
+    assert.include(vscodeMock.window.createStatusBarItem().text, '(bundled)');
+    assert.notInclude(vscodeMock.window.createStatusBarItem().text, ' v');
 
     // Test error with version info
     setStatusBarError();

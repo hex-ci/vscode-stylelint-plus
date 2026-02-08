@@ -45,7 +45,7 @@ describe('loadStylelint', () => {
     assert.strictEqual(result, stylelintMock);
   });
 
-  it('should handle missing package.json with and without fallback', async () => {
+  it('should handle missing package.json', async () => {
     const pkgJsonPath = path.join('/some/path', 'package.json');
     fsPromisesStub.access.withArgs(pkgJsonPath).rejects(new Error('ENOENT'));
 
@@ -55,12 +55,6 @@ describe('loadStylelint', () => {
     } catch (err) {
       assert.include(err.message, 'Cannot find package.json');
     }
-
-    fsPromisesStub.access.reset();
-    fsPromisesStub.access.rejects(new Error('ENOENT'));
-
-    const result = await loadStylelint('/some/path', { fallbackToBundled: true });
-    assert.strictEqual(result, stylelintMock);
   });
 
   it('should load local stylelint for supported versions', async () => {
@@ -137,24 +131,6 @@ describe('loadStylelint', () => {
     } catch (err) {
       assert.include(err.message, 'Invalid JSON');
     }
-
-    // Test fallbackToBundled with invalid JSON
-    fsPromisesStub.readFile.reset();
-    fsPromisesStub.readFile.withArgs(pkgJsonPath, 'utf8')
-      .resolves('{ invalid json }');
-
-    const fallbackResult = await loadStylelint('/some/path', { fallbackToBundled: true });
-    assert.equal(fallbackResult.version, '15.0.0');
-
-    fsPromisesStub.readFile.reset();
-    fsPromisesStub.readFile.rejects(new Error('Read error'));
-
-    try {
-      await loadStylelint('/some/path', { fallbackToBundled: true });
-      assert.fail('Should have thrown');
-    } catch (err) {
-      assert.include(err.message, 'Read error');
-    }
   });
 
   it('should parse version edge cases', async () => {
@@ -176,26 +152,25 @@ describe('loadStylelint', () => {
     assert.equal(resultNoVersion.version, '15.0.0');
   });
 
-  it('should support options and modulePath variants', async () => {
+  it('should support modulePath variants', async () => {
     const pkgJsonPath = path.join('/some/path', 'package.json');
     fsPromisesStub.access.withArgs(pkgJsonPath).rejects(new Error('ENOENT'));
 
     try {
-      await loadStylelint('/some/path', { fallbackToBundled: false });
+      await loadStylelint('/some/path');
       assert.fail('Should have thrown');
     } catch (err) {
       assert.include(err.message, 'Cannot find package.json');
     }
 
     const variants = [
-      { modulePath: undefined, options: {} },
-      { modulePath: null, options: { fallbackToBundled: true } },
-      { modulePath: undefined, options: { fallbackToBundled: false } },
-      { modulePath: '', options: { fallbackToBundled: false } }
+      { modulePath: undefined },
+      { modulePath: null },
+      { modulePath: '' }
     ];
 
     for (const variant of variants) {
-      const result = await loadStylelint(variant.modulePath, variant.options);
+      const result = await loadStylelint(variant.modulePath);
       assert.strictEqual(result, stylelintMock);
     }
   });

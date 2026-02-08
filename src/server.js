@@ -59,6 +59,10 @@ class StylelintServer {
     this.isUsingLocal = false;
     this.isShuttingDown = false;
 
+    // Error deduplication: tracks reported errors to avoid duplicate popups
+    // Key: "uri|errorType", cleared on config file changes (validateAll)
+    this.reportedErrors = new Map();
+
     // Caches
     this.versionCache = new LRUCache(MAX_VERSION_CACHE_SIZE);
     this.workspaceCache = null;
@@ -124,15 +128,34 @@ class StylelintServer {
    * Handle stylelint errors with proper user feedback
    * @param {Error} err - Error object
    * @param {string} context - Error context (e.g., 'validation', 'autofix')
+   * @param {string} [documentUri] - Document URI for error deduplication
    */
-  handleStylelintError(err, context) {
+  handleStylelintError(err, context, documentUri) {
     const stack = err?.stack || String(err);
 
     this.connection.console.log(`stylelint ${context} error: ${stack}`);
+
+    if (this.detectedStylelintVersion) {
+      this.connection.console.log(
+        `stylelint version: ${this.detectedStylelintVersion} (${this.isUsingLocal ? 'local' : 'bundled'})`
+      );
+    }
+
     this.safeNotification('setStatusBarError');
 
     if (this.disableErrorMessage) {
       return;
+    }
+
+    // Deduplicate error messages per document + error type
+    if (documentUri) {
+      const errorKey = `${documentUri}|${err.code || err.message || 'unknown'}`;
+
+      if (this.reportedErrors.has(errorKey)) {
+        return;
+      }
+
+      this.reportedErrors.set(errorKey, true);
     }
 
     if (err.reasons) {
@@ -380,7 +403,8 @@ class StylelintServer {
             options.path = localPath;
           }
           catch {
-            // Local stylelint not found, use bundled
+            // Local stylelint not found in workspace, will fallback to bundled
+            return {options, localNotFound: true};
           }
         }
       }
@@ -444,10 +468,11 @@ class StylelintServer {
       const {options, localNotFound} = await this.buildStylelintOptions(document);
 
       if (localNotFound) {
-        this.connection.console.log('Local stylelint not found.');
-        this.safeNotification('setStatusBarError');
-
-        return;
+        this.connection.console.log(
+          'Local stylelint not found, falling back to bundled version.'
+        );
+        // Remove path so loadStylelint uses the bundled version
+        delete options.path;
       }
 
       // Version tracking (validate-specific)
@@ -456,8 +481,6 @@ class StylelintServer {
       this.detectedStylelintVersion = versionInfo.version;
       this.isUsingLocal = stylelintPath ? versionInfo.isLocal : false;
 
-      this.safeNotification('setStatusBarOk');
-
       // Check if cancelled before proceeding
       if (token.cancelled) {
         return;
@@ -465,7 +488,8 @@ class StylelintServer {
 
       this.safeNotification('stylelint/versionDetected', {
         version: this.detectedStylelintVersion,
-        isLocal: this.isUsingLocal
+        isLocal: this.isUsingLocal,
+        isFallback: localNotFound
       });
 
       const {diagnostics, ruleMetadata} = await stylelintVSCode(document, options);
@@ -478,11 +502,57 @@ class StylelintServer {
       // Use batcher for efficient sending
       this.diagnosticsBatcher.add(document.uri, diagnostics);
       this.documentDiagnostics.set(document.uri, {diagnostics, ruleMetadata});
-
-      this.safeNotification('setStatusBarOk');
     }
     catch (err) {
-      this.handleStylelintError(err, 'validation');
+      const message = err?.message || '';
+      const isNoConfig =
+        message.startsWith('No configuration provided') ||
+        message.includes('No rules found within configuration');
+      const isConfigError =
+        isNoConfig ||
+        err.code === STYLELINT_ERROR_CODE_CONFIG ||
+        err.name === 'JSONError' ||
+        (err.reasons && err.reasons.length > 0);
+
+      if (isConfigError) {
+        // "No config" is a normal scenario (user may not have a config file) — degrade silently.
+        // "Config broken" needs user notification so they can fix it.
+        if (!isNoConfig) {
+          this.handleStylelintError(err, 'validation', document.uri);
+        }
+
+        if (document.languageId === 'css') {
+          // Config is broken/missing but we can still check CSS syntax errors
+          try {
+            // Build minimal fallback options: empty rules + no local path (use bundled)
+            const {options: fallbackOptions} = await this.buildStylelintOptions(document);
+
+            delete fallbackOptions.path;
+            fallbackOptions.config = {rules: {}};
+
+            const {diagnostics, ruleMetadata} = await stylelintVSCode(document, fallbackOptions);
+
+            if (!token.cancelled) {
+              this.diagnosticsBatcher.add(document.uri, diagnostics);
+              this.documentDiagnostics.set(document.uri, {diagnostics, ruleMetadata});
+            }
+          }
+          catch (_fallbackErr) {
+            // Fallback also failed, silently ignore
+          }
+        }
+        else {
+          // Non-CSS files: clear stale diagnostics (config is broken/missing, old results are unreliable)
+          if (!token.cancelled) {
+            this.diagnosticsBatcher.add(document.uri, []);
+            this.documentDiagnostics.set(document.uri, {diagnostics: [], ruleMetadata: {}});
+          }
+        }
+
+        return;
+      }
+
+      this.handleStylelintError(err, 'validation', document.uri);
     }
     finally {
       if (this.validationTokens.get(document.uri) === token) {
@@ -496,6 +566,9 @@ class StylelintServer {
    * @returns {Promise<void>}
    */
   async validateAll() {
+    // Clear error deduplication on re-validation (e.g., config file changed)
+    this.reportedErrors.clear();
+
     const documents = this.documents.all();
 
     // Process in batches to limit concurrency
@@ -528,10 +601,19 @@ class StylelintServer {
       const {options, localNotFound} = await this.buildStylelintOptions(document, {fix: true});
 
       if (localNotFound) {
-        this.connection.console.log('Local stylelint not found.');
-        this.safeNotification('setStatusBarError');
+        this.connection.console.log(
+          'Local stylelint not found, falling back to bundled version for autofix.'
+        );
+        // Remove path so loadStylelint uses the bundled version
+        delete options.path;
 
-        return;
+        const versionInfo = await this.getVersionInfo(null);
+
+        this.safeNotification('stylelint/versionDetected', {
+          version: versionInfo.version,
+          isLocal: false,
+          isFallback: true
+        });
       }
 
       const originalText = document.getText();
@@ -587,7 +669,7 @@ class StylelintServer {
       }
     }
     catch (err) {
-      this.handleStylelintError(err, 'autofix');
+      this.handleStylelintError(err, 'autofix', uri);
     }
   }
 
@@ -612,6 +694,7 @@ class StylelintServer {
     this.versionCache.clear();
     this.workspaceCache = null;
     this.workspaceCacheTime = 0;
+    this.reportedErrors.clear();
 
     // Remove global error handlers
     if (this.boundUnhandledRejection) {
@@ -769,7 +852,16 @@ function startServer() {
       const {options, localNotFound} = await server.buildStylelintOptions(document, {fix: true});
 
       if (localNotFound) {
-        return [];
+        // Fallback to bundled version for auto-fix on save
+        delete options.path;
+
+        const versionInfo = await server.getVersionInfo(null);
+
+        server.safeNotification('stylelint/versionDetected', {
+          version: versionInfo.version,
+          isLocal: false,
+          isFallback: true
+        });
       }
 
       const {fixedCode} = await stylelintVSCode(document, options);
@@ -793,7 +885,7 @@ function startServer() {
       }];
     }
     catch (err) {
-      server.handleStylelintError(err, 'autofix-on-save');
+      server.handleStylelintError(err, 'autofix-on-save', document.uri);
 
       return [];
     }

@@ -2,8 +2,6 @@
 
 const path = require('path');
 const arrayToError = require('array-to-error');
-const at = require('lodash/at');
-const has = require('lodash/has');
 const isPlainObject = require('lodash/isPlainObject');
 const map = require('lodash/map');
 const stubString = require('lodash/stubString');
@@ -13,75 +11,6 @@ const parseUri = require('vscode-uri').URI.parse;
 const stylelintWarningToVscodeDiagnostic = require('./diagnostic');
 const loadStylelint = require('./load-stylelint');
 const { MAX_FILE_SIZE } = require('./constants');
-
-// https://github.com/stylelint/stylelint/blob/10.0.1/lib/getPostcssResult.js#L69-L81
-const SUPPORTED_SYNTAXES = new Set([
-  'css-in-js',
-  'html',
-  'less',
-  'markdown',
-  'sass',
-  'scss',
-  'sugarss'
-]);
-
-const LANGUAGE_EXTENSION_EXCEPTION_PAIRS = new Map([
-  ['javascript', 'css-in-js'],
-  ['javascriptreact', 'css-in-js'],
-  ['source.css.styled', 'css-in-js'],
-  ['source.markdown.math', 'markdown'],
-  ['styled-css', 'css-in-js'],
-  ['svelte', 'html'],
-  ['typescript', 'css-in-js'],
-  ['typescriptreact', 'css-in-js'],
-  ['vue-html', 'html'],
-  ['xml', 'html'],
-  ['xsl', 'html']
-]);
-
-/* istanbul ignore next -- default param never used; both call sites pass explicit arg */
-function processResults(resultContainer, extractFixedCode = false) {
-  const results = (resultContainer && Array.isArray(resultContainer.results))
-    ? resultContainer.results
-    : [];
-  const firstResult = results[0];
-  const ruleMetadata = (resultContainer && resultContainer.ruleMetadata)
-    ? resultContainer.ruleMetadata
-    : (firstResult && firstResult._postcssResult && firstResult._postcssResult.stylelint
-      ? firstResult._postcssResult.stylelint.ruleMetadata
-      : null);
-
-  // Extract fixed code when fix mode is active
-  // - v16+: result.code contains the fixed code
-  // - v15: result.output is overwritten with fixed code by standalone.js
-  // - || null handles v15 no-fix case where output is "" (empty string from stubString formatter)
-  let fixedCode = null;
-
-  if (extractFixedCode && resultContainer) {
-    fixedCode = resultContainer.code ?? (resultContainer.output || null);
-  }
-
-  // https://github.com/stylelint/stylelint/blob/10.0.1/lib/standalone.js#L114-L122
-  if (results.length === 0) {
-    return {
-      diagnostics: [],
-      ruleMetadata: {},
-      fixedCode
-    };
-  }
-
-  const [{invalidOptionWarnings = [], warnings = []}] = results;
-
-  if (invalidOptionWarnings.length !== 0) {
-    throw arrayToError(map(invalidOptionWarnings, 'text'), SyntaxError);
-  }
-
-  return {
-    diagnostics: warnings.map(stylelintWarningToVscodeDiagnostic),
-    ruleMetadata: ruleMetadata || {},
-    fixedCode
-  };
-}
 
 module.exports = async function stylelintVSCode(textDocument, options = {}) {
   if (!TextDocument.is(textDocument)) {
@@ -104,67 +33,63 @@ module.exports = async function stylelintVSCode(textDocument, options = {}) {
   }
 
   const priorOptions = {
-    formatter: stubString
+    formatter: stubString,
+    code: text
   };
   const codeFilename = parseUri(textDocument.uri).fsPath;
   const isAbsolutePath = codeFilename && path.isAbsolute(codeFilename);
-  let resultContainer;
 
   if (isAbsolutePath) {
-    priorOptions.code = text;
     priorOptions.codeFilename = codeFilename;
-  }
-  else {
-    priorOptions.code = text;
-
-    if (!has(options, 'syntax')) {
-      if (SUPPORTED_SYNTAXES.has(textDocument.languageId)) {
-        priorOptions.syntax = textDocument.languageId;
-      }
-      else {
-        const syntax = LANGUAGE_EXTENSION_EXCEPTION_PAIRS.get(textDocument.languageId);
-
-        if (syntax) {
-          priorOptions.syntax = syntax;
-        }
-      }
-    }
-
-    // Only use empty config when there's no cwd (can't find config file) and no user-provided config
-    if (!options.cwd && !at(options, 'config.rules')[0]) {
-      priorOptions.config = {rules: {}};
-    }
   }
 
   const stylelintModule = await loadStylelint(options.path);
   const { lint } = stylelintModule;
 
-  try {
-    resultContainer = await lint({
-      ...options,
-      ...priorOptions,
-      quietDeprecationWarnings: true
-    });
+  const lintResult = await lint({
+    ...options,
+    ...priorOptions,
+    quietDeprecationWarnings: true
+  });
+
+  // Extract results
+  const results = (lintResult && Array.isArray(lintResult.results))
+    ? lintResult.results
+    : [];
+  const firstResult = results[0];
+  const ruleMetadata = (lintResult && lintResult.ruleMetadata)
+    ? lintResult.ruleMetadata
+    : (firstResult && firstResult._postcssResult && firstResult._postcssResult.stylelint
+      ? firstResult._postcssResult.stylelint.ruleMetadata
+      : null);
+
+  // Extract fixed code when fix mode is active
+  // - v16+: result.code contains the fixed code
+  // - v15: result.output is overwritten with fixed code by standalone.js
+  // - || null handles v15 no-fix case where output is "" (empty string from stubString formatter)
+  let fixedCode = null;
+
+  if (options.fix && lintResult) {
+    fixedCode = lintResult.code ?? (lintResult.output || null);
   }
-  catch (err) {
-    const message = err?.message || '';
 
-    if (
-      message.startsWith('No configuration provided for') ||
-      message.includes('No rules found within configuration')
-    ) {
-      // Check only CSS syntax errors without applying any stylelint rules
-      return processResults(await lint({
-        ...options,
-        ...priorOptions,
-        config: {
-          rules: {}
-        }
-      }), Boolean(options.fix));
-    }
-
-    throw err;
+  if (results.length === 0) {
+    return {
+      diagnostics: [],
+      ruleMetadata: {},
+      fixedCode
+    };
   }
 
-  return processResults(resultContainer, Boolean(options.fix));
+  const [{invalidOptionWarnings = [], warnings = []}] = results;
+
+  if (invalidOptionWarnings.length !== 0) {
+    throw arrayToError(map(invalidOptionWarnings, 'text'), SyntaxError);
+  }
+
+  return {
+    diagnostics: warnings.map(stylelintWarningToVscodeDiagnostic),
+    ruleMetadata: ruleMetadata || {},
+    fixedCode
+  };
 };

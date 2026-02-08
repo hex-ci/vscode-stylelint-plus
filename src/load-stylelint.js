@@ -10,11 +10,9 @@ const { pathToFileURL } = require('url');
  * Supports both CommonJS and ESM (stylelint v17+).
  *
  * @param {string} [modulePath] - Path to stylelint module (directory containing package.json)
- * @param {Object} [options] - Loading options
- * @param {boolean} [options.fallbackToBundled=false] - If true, falls back to bundled stylelint if local module is invalid/missing
  * @returns {Promise<Object>} The stylelint module
  */
-async function loadStylelint(modulePath, { fallbackToBundled = false } = {}) {
+async function loadStylelint(modulePath) {
   if (!modulePath) {
     return require('stylelint');
   }
@@ -25,9 +23,6 @@ async function loadStylelint(modulePath, { fallbackToBundled = false } = {}) {
     await fsPromises.access(pkgJsonPath);
   }
   catch {
-    if (fallbackToBundled) {
-      return require('stylelint');
-    }
     throw new Error(`Cannot find package.json at ${pkgJsonPath}`);
   }
 
@@ -38,9 +33,6 @@ async function loadStylelint(modulePath, { fallbackToBundled = false } = {}) {
     pkgJson = JSON.parse(pkgJsonContent);
   }
   catch {
-    if (fallbackToBundled) {
-      return require('stylelint');
-    }
     throw new Error(`Invalid JSON in ${pkgJsonPath}`);
   }
 

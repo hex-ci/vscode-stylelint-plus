@@ -34,6 +34,16 @@ const versionInfo = {
 };
 
 const setStatusBar = (status = 'ok') => {
+  if (status === 'warn') {
+    const ver = versionInfo.version ? ` v${versionInfo.version}` : '';
+
+    statusBarItem.text = `$(warning) Stylelint+ (bundled${ver})`;
+    statusBarItem.tooltip = 'Local stylelint not found, using bundled version as fallback.';
+    statusBarItem.show();
+
+    return;
+  }
+
   const isOk = status === 'ok';
   const hasVersion = Boolean(versionInfo.version);
   const source = versionInfo.isLocal ? 'local' : 'bundled';
@@ -107,17 +117,13 @@ module.exports.activate = ({subscriptions}) => {
         setStatusBar('error');
       });
 
-      client.onNotification('setStatusBarOk', () => {
-        setStatusBar('ok');
-      });
-
       client.onNotification('stylelint/versionDetected', (params) => {
-        const {version, isLocal} = params || {};
+        const {version, isLocal, isFallback} = params || {};
 
         versionInfo.version = version;
         versionInfo.isLocal = isLocal;
 
-        setStatusBar('ok');
+        setStatusBar(isFallback ? 'warn' : 'ok');
       });
     })
     .catch((err) => {

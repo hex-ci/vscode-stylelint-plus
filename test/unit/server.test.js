@@ -336,6 +336,51 @@ describe('Server', () => {
       assert.isTrue(connectionMock.window.showErrorMessage.called);
       assert.isTrue(connectionMock.console.log.called);
     });
+
+    it('should deduplicate errors for the same document', () => {
+      const server = new StylelintServer(connectionMock, documentsMock);
+      server.disableErrorMessage = false;
+
+      const error = new Error('Config error');
+      error.code = 78;
+
+      // First call — should show error
+      server.handleStylelintError(error, 'validation', 'file:///test.css');
+      assert.isTrue(connectionMock.window.showErrorMessage.calledOnce);
+
+      // Second call with same document + error — should be deduplicated
+      server.handleStylelintError(error, 'validation', 'file:///test.css');
+      assert.isTrue(connectionMock.window.showErrorMessage.calledOnce); // still once
+
+      // Third call with different document — should show error again
+      server.handleStylelintError(error, 'validation', 'file:///other.css');
+      assert.isTrue(connectionMock.window.showErrorMessage.calledTwice);
+    });
+
+    it('should log version info when detectedStylelintVersion is set', () => {
+      const server = new StylelintServer(connectionMock, documentsMock);
+      server.detectedStylelintVersion = '15.11.0';
+      server.isUsingLocal = true;
+
+      const error = new Error('Some error');
+      server.handleStylelintError(error, 'validation');
+
+      assert.isTrue(connectionMock.console.log.calledWith('stylelint version: 15.11.0 (local)'));
+    });
+
+    it('should use "unknown" errorKey when error has no code and no message', () => {
+      const server = new StylelintServer(connectionMock, documentsMock);
+      server.disableErrorMessage = false;
+
+      const error = {};
+
+      server.handleStylelintError(error, 'validation', 'file:///test.css');
+      assert.isTrue(connectionMock.window.showErrorMessage.calledOnce);
+
+      // Second call — should be deduplicated using 'unknown' key
+      server.handleStylelintError(error, 'validation', 'file:///test.css');
+      assert.isTrue(connectionMock.window.showErrorMessage.calledOnce);
+    });
   });
 
   describe('getWorkspaceForDocument', () => {
@@ -713,7 +758,7 @@ describe('Server', () => {
 
       const {options, localNotFound} = await server.buildStylelintOptions(document);
 
-      assert.isFalse(localNotFound);
+      assert.isTrue(localNotFound);
       assert.isUndefined(options.path);
     });
 
@@ -807,9 +852,13 @@ describe('Server', () => {
         getText: () => 'a { color: red; }'
       };
 
-      server.resolveStylelintOptions = sinon.stub().resolves({
-        ignorePath: '/workspace/.stylelintignore',
-        path: null
+      // Mock buildStylelintOptions to return localNotFound: true
+      server.buildStylelintOptions = sinon.stub().resolves({
+        options: {
+          ignorePath: '/workspace/.stylelintignore',
+          path: '/workspace/node_modules/stylelint'
+        },
+        localNotFound: true
       });
 
       connectionMock.workspace.getWorkspaceFolders.resolves([
@@ -818,8 +867,13 @@ describe('Server', () => {
 
       await server.validate(document);
 
-      assert.isFalse(stylelintVSCodeStub.called);
-      assert.isTrue(connectionMock.console.log.calledWith('Local stylelint not found.'));
+      // Should still call stylelintVSCode (fallback to bundled)
+      assert.isTrue(stylelintVSCodeStub.called);
+      assert.isTrue(connectionMock.console.log.calledWith('Local stylelint not found, falling back to bundled version.'));
+
+      // Verify that path was deleted (fallback to bundled)
+      const callArgs = stylelintVSCodeStub.firstCall.args;
+      assert.isUndefined(callArgs[1].path);
     });
 
     it('should handle validation errors', async () => {
@@ -1046,6 +1100,317 @@ describe('Server', () => {
 
       // The replacement token should still be in the map (not deleted by finally)
       assert.equal(server.validationTokens.get(document.uri), replacementToken);
+    });
+
+    it('should fallback to CSS syntax check on No configuration provided error', async () => {
+      const server = new StylelintServer(connectionMock, documentsMock);
+      const document = {
+        uri: 'file:///workspace/test.css',
+        languageId: 'css',
+        getText: () => 'body { color red }'
+      };
+
+      server.resolveStylelintOptions = sinon.stub().resolves({
+        ignorePath: '/workspace/.stylelintignore'
+      });
+
+      connectionMock.workspace.getWorkspaceFolders.resolves([
+        { uri: 'file:///workspace' }
+      ]);
+
+      const noConfigError = new Error('No configuration provided for /workspace/test.css');
+      noConfigError.code = 78;
+      stylelintVSCodeStub.onFirstCall().rejects(noConfigError);
+      stylelintVSCodeStub.onSecondCall().resolves({
+        diagnostics: [{ message: 'CssSyntaxError' }],
+        ruleMetadata: {}
+      });
+
+      await server.validate(document);
+
+      // Should retry with empty rules for CSS files
+      assert.isTrue(stylelintVSCodeStub.calledTwice);
+      const fallbackArgs = stylelintVSCodeStub.secondCall.args[1];
+      assert.deepEqual(fallbackArgs.config, { rules: {} });
+      // Should NOT call handleStylelintError for no-config (silent degradation)
+      assert.isFalse(connectionMock.window.showErrorMessage.called);
+    });
+
+    it('should silently skip non-CSS files on No configuration provided error', async () => {
+      const server = new StylelintServer(connectionMock, documentsMock);
+      const document = {
+        uri: 'file:///workspace/test.scss',
+        languageId: 'scss',
+        getText: () => '$color: red;'
+      };
+
+      server.resolveStylelintOptions = sinon.stub().resolves({
+        ignorePath: '/workspace/.stylelintignore'
+      });
+
+      connectionMock.workspace.getWorkspaceFolders.resolves([
+        { uri: 'file:///workspace' }
+      ]);
+
+      const noConfigError = new Error('No configuration provided for /workspace/test.scss');
+      noConfigError.code = 78;
+      stylelintVSCodeStub.rejects(noConfigError);
+
+      await server.validate(document);
+
+      // Should NOT retry — just clear diagnostics
+      assert.isTrue(stylelintVSCodeStub.calledOnce);
+      // Should NOT call handleStylelintError for no-config
+      assert.isFalse(connectionMock.window.showErrorMessage.called);
+    });
+
+    it('should show error and fallback for CSS on config broken error (code 78)', async () => {
+      const server = new StylelintServer(connectionMock, documentsMock);
+      const document = {
+        uri: 'file:///workspace/test.css',
+        languageId: 'css',
+        getText: () => 'body { color: red; }'
+      };
+
+      server.resolveStylelintOptions = sinon.stub().resolves({
+        ignorePath: '/workspace/.stylelintignore'
+      });
+
+      connectionMock.workspace.getWorkspaceFolders.resolves([
+        { uri: 'file:///workspace' }
+      ]);
+
+      const configError = new Error('Could not find "stylelint-config-nonexistent"');
+      configError.code = 78;
+      stylelintVSCodeStub.onFirstCall().rejects(configError);
+      stylelintVSCodeStub.onSecondCall().resolves({
+        diagnostics: [],
+        ruleMetadata: {}
+      });
+
+      await server.validate(document);
+
+      // Should show error message for broken config (not silent)
+      assert.isTrue(connectionMock.window.showErrorMessage.called);
+      // Should retry with empty rules for CSS
+      assert.isTrue(stylelintVSCodeStub.calledTwice);
+    });
+
+    it('should handle JSONError as config error and fallback for CSS', async () => {
+      const server = new StylelintServer(connectionMock, documentsMock);
+      const document = {
+        uri: 'file:///workspace/test.css',
+        languageId: 'css',
+        getText: () => 'body { color: red; }'
+      };
+
+      server.resolveStylelintOptions = sinon.stub().resolves({
+        ignorePath: '/workspace/.stylelintignore'
+      });
+
+      connectionMock.workspace.getWorkspaceFolders.resolves([
+        { uri: 'file:///workspace' }
+      ]);
+
+      const jsonError = new Error('JSON Error in .stylelintrc.json');
+      jsonError.name = 'JSONError';
+      stylelintVSCodeStub.onFirstCall().rejects(jsonError);
+      stylelintVSCodeStub.onSecondCall().resolves({
+        diagnostics: [],
+        ruleMetadata: {}
+      });
+
+      await server.validate(document);
+
+      // Should show error message for broken JSON config
+      assert.isTrue(connectionMock.window.showErrorMessage.called);
+      // Should retry with empty rules for CSS
+      assert.isTrue(stylelintVSCodeStub.calledTwice);
+    });
+
+    it('should clear diagnostics for non-CSS on No rules found error', async () => {
+      const server = new StylelintServer(connectionMock, documentsMock);
+      const document = {
+        uri: 'file:///workspace/test.vue',
+        languageId: 'vue',
+        getText: () => '<style>.a{}</style>'
+      };
+
+      server.resolveStylelintOptions = sinon.stub().resolves({
+        ignorePath: '/workspace/.stylelintignore'
+      });
+
+      connectionMock.workspace.getWorkspaceFolders.resolves([
+        { uri: 'file:///workspace' }
+      ]);
+
+      const noRulesError = new Error('No rules found within configuration');
+      noRulesError.code = 78;
+      stylelintVSCodeStub.rejects(noRulesError);
+
+      await server.validate(document);
+
+      // Should NOT retry for non-CSS
+      assert.isTrue(stylelintVSCodeStub.calledOnce);
+      // Should clear diagnostics
+      const batcherAddCall = server.diagnosticsBatcher.add.firstCall;
+      assert.equal(batcherAddCall.args[0], document.uri);
+      assert.deepEqual(batcherAddCall.args[1], []);
+    });
+
+    it('should silently ignore fallback failure', async () => {
+      const server = new StylelintServer(connectionMock, documentsMock);
+      const document = {
+        uri: 'file:///workspace/test.css',
+        languageId: 'css',
+        getText: () => 'body { color red }'
+      };
+
+      server.resolveStylelintOptions = sinon.stub().resolves({
+        ignorePath: '/workspace/.stylelintignore'
+      });
+
+      connectionMock.workspace.getWorkspaceFolders.resolves([
+        { uri: 'file:///workspace' }
+      ]);
+
+      const noConfigError = new Error('No configuration provided for /workspace/test.css');
+      noConfigError.code = 78;
+      stylelintVSCodeStub.onFirstCall().rejects(noConfigError);
+      stylelintVSCodeStub.onSecondCall().rejects(new Error('Fallback also failed'));
+
+      // Should not throw — fallback failure is silently ignored
+      await server.validate(document);
+
+      assert.isTrue(stylelintVSCodeStub.calledTwice);
+    });
+
+    it('should skip CSS fallback diagnostics when token is cancelled', async () => {
+      const server = new StylelintServer(connectionMock, documentsMock);
+      const document = {
+        uri: 'file:///workspace/test.css',
+        languageId: 'css',
+        getText: () => 'body { color red }'
+      };
+
+      server.resolveStylelintOptions = sinon.stub().resolves({
+        ignorePath: '/workspace/.stylelintignore'
+      });
+
+      connectionMock.workspace.getWorkspaceFolders.resolves([
+        { uri: 'file:///workspace' }
+      ]);
+
+      const noConfigError = new Error('No configuration provided for /workspace/test.css');
+      noConfigError.code = 78;
+      stylelintVSCodeStub.onFirstCall().rejects(noConfigError);
+      stylelintVSCodeStub.onSecondCall().callsFake(async () => {
+        // Simulate token cancellation during fallback
+        server.validationTokens.get(document.uri).cancelled = true;
+        return { diagnostics: [{ message: 'CssSyntaxError' }], ruleMetadata: {} };
+      });
+
+      await server.validate(document);
+
+      // Fallback ran but diagnostics should NOT be sent (token cancelled)
+      assert.isTrue(stylelintVSCodeStub.calledTwice);
+      assert.isFalse(server.diagnosticsBatcher.add.called);
+    });
+
+    it('should skip non-CSS clear when token is cancelled', async () => {
+      const server = new StylelintServer(connectionMock, documentsMock);
+      const document = {
+        uri: 'file:///workspace/test.scss',
+        languageId: 'scss',
+        getText: () => '$color: red;'
+      };
+
+      server.resolveStylelintOptions = sinon.stub().resolves({
+        ignorePath: '/workspace/.stylelintignore'
+      });
+
+      connectionMock.workspace.getWorkspaceFolders.resolves([
+        { uri: 'file:///workspace' }
+      ]);
+
+      const noConfigError = new Error('No configuration provided for /workspace/test.scss');
+      noConfigError.code = 78;
+
+      stylelintVSCodeStub.callsFake(async () => {
+        // Cancel the token that validate() created, simulating a new validation arriving
+        const token = server.validationTokens.get(document.uri);
+        token.cancelled = true;
+        throw noConfigError;
+      });
+
+      await server.validate(document);
+
+      // Should NOT clear diagnostics (token cancelled)
+      assert.isFalse(server.diagnosticsBatcher.add.called);
+    });
+
+    it('should handle config error with reasons property', async () => {
+      const server = new StylelintServer(connectionMock, documentsMock);
+      const document = {
+        uri: 'file:///workspace/test.css',
+        languageId: 'css',
+        getText: () => 'body { color: red; }'
+      };
+
+      server.resolveStylelintOptions = sinon.stub().resolves({
+        ignorePath: '/workspace/.stylelintignore'
+      });
+
+      connectionMock.workspace.getWorkspaceFolders.resolves([
+        { uri: 'file:///workspace' }
+      ]);
+
+      const error = new Error('Multiple errors');
+      error.reasons = ['Reason 1', 'Reason 2'];
+      stylelintVSCodeStub.onFirstCall().rejects(error);
+      stylelintVSCodeStub.onSecondCall().resolves({
+        diagnostics: [],
+        ruleMetadata: {}
+      });
+
+      await server.validate(document);
+
+      // Should show error (config broken, not no-config)
+      assert.isTrue(connectionMock.window.showErrorMessage.called);
+      // Should fallback for CSS
+      assert.isTrue(stylelintVSCodeStub.calledTwice);
+    });
+
+    it('should handle error without message in catch block', async () => {
+      const server = new StylelintServer(connectionMock, documentsMock);
+      const document = {
+        uri: 'file:///workspace/test.css',
+        languageId: 'css',
+        getText: () => 'body { color: red; }'
+      };
+
+      server.resolveStylelintOptions = sinon.stub().resolves({
+        ignorePath: '/workspace/.stylelintignore'
+      });
+
+      connectionMock.workspace.getWorkspaceFolders.resolves([
+        { uri: 'file:///workspace' }
+      ]);
+
+      const error = { code: 78 };
+      stylelintVSCodeStub.onFirstCall().rejects(error);
+      stylelintVSCodeStub.onSecondCall().resolves({
+        diagnostics: [],
+        ruleMetadata: {}
+      });
+
+      await server.validate(document);
+
+      // err?.message is undefined, so isNoConfig=false, but code=78 → isConfigError=true
+      // Should show error (not no-config)
+      assert.isTrue(connectionMock.window.showErrorMessage.called);
+      // Should fallback for CSS
+      assert.isTrue(stylelintVSCodeStub.calledTwice);
     });
   });
 
@@ -1416,19 +1781,35 @@ describe('Server', () => {
 
       documentsMock.get.returns(document);
 
-      server.resolveStylelintOptions = sinon.stub().resolves({
-        ignorePath: '/workspace/.stylelintignore',
-        path: null
+      // Mock buildStylelintOptions to return localNotFound: true
+      server.buildStylelintOptions = sinon.stub().resolves({
+        options: {
+          ignorePath: '/workspace/.stylelintignore',
+          path: '/workspace/node_modules/stylelint',
+          fix: true
+        },
+        localNotFound: true
       });
 
       connectionMock.workspace.getWorkspaceFolders.resolves([
         { uri: 'file:///workspace' }
       ]);
 
+      stylelintVSCodeStub.resolves({
+        diagnostics: [],
+        ruleMetadata: {},
+        fixedCode: 'fixed content'
+      });
+
       await server.executeAutofix('file:///workspace/test.css');
 
-      assert.isFalse(stylelintVSCodeStub.called);
-      assert.isTrue(connectionMock.console.log.calledWith('Local stylelint not found.'));
+      // Should still call stylelintVSCode (fallback to bundled)
+      assert.isTrue(stylelintVSCodeStub.called);
+      assert.isTrue(connectionMock.console.log.calledWith('Local stylelint not found, falling back to bundled version for autofix.'));
+
+      // Verify that path was deleted (fallback to bundled)
+      const callArgs = stylelintVSCodeStub.firstCall.args;
+      assert.isUndefined(callArgs[1].path);
     });
 
     it('should handle autofix errors', async () => {
@@ -1787,7 +2168,7 @@ describe('Server', () => {
       assert.isTrue(connectionStub.console.log.calledWith(sinon.match('autofix-on-save error')));
     });
 
-    it('should return [] in onWillSaveWaitUntil when useLocal but no stylelint path', async () => {
+    it('should fallback to bundled in onWillSaveWaitUntil when useLocal but no stylelint path', async () => {
       const server = serverModule.startServer();
       server.autoFixOnSave = true;
       server.useLocal = true;
@@ -1805,11 +2186,17 @@ describe('Server', () => {
         { uri: 'file:///workspace' }
       ]);
 
+      // Fallback to bundled: stylelintVSCode should be called and return no fix
+      stylelintVSCodeStub.resolves({ diagnostics: [], ruleMetadata: {}, fixedCode: null });
+
       const edits = await handlers.onWillSaveWaitUntil({ document });
 
       assert.isArray(edits);
       assert.equal(edits.length, 0);
-      assert.isFalse(stylelintVSCodeStub.called);
+      assert.isTrue(stylelintVSCodeStub.called, 'should call stylelintVSCode with bundled fallback');
+      // Verify options.path was removed (fallback to bundled)
+      const callOptions = stylelintVSCodeStub.firstCall.args[1];
+      assert.isUndefined(callOptions.path);
     });
 
     describe('onCodeAction', () => {

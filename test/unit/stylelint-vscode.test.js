@@ -256,93 +256,90 @@ describe('stylelintVSCode', () => {
     assert.isNull(result.fixedCode);
   });
 
-  it('should return fixedCode in no-config fallback path', async () => {
-    const document = TextDocument.create('file:///test.css', 'css', 1, 'body {}');
-    const error = new Error('No configuration provided for /test.css');
-    lintStub.onFirstCall().rejects(error);
-    lintStub.onSecondCall().resolves({
-      results: [{
-        invalidOptionWarnings: [],
-        warnings: []
-      }],
-      ruleMetadata: buildRuleMetadata(),
-      code: 'body { }'
-    });
-
-    const result = await stylelintVSCode(document, { fix: true });
-
-    assert.equal(result.fixedCode, 'body { }');
-  });
-
-  it('should handle untitled defaults, syntax inference, and config', async () => {
-    const untitledCss = TextDocument.create('untitled:', 'css', 1, 'body {}');
-    await stylelintVSCode(untitledCss);
-
-    const firstCallArgs = lintStub.firstCall.args[0];
-    assert.equal(firstCallArgs.code, 'body {}');
-    assert.isUndefined(firstCallArgs.codeFilename);
-    assert.deepEqual(firstCallArgs.config, { rules: {} });
-
-    const untitledScss = TextDocument.create('untitled:', 'scss', 1, 'body {}');
-    await stylelintVSCode(untitledScss);
-    assert.equal(lintStub.secondCall.args[0].syntax, 'scss');
-
-    const untitledJs = TextDocument.create('untitled:', 'javascript', 1, 'const style = css`...`');
-    await stylelintVSCode(untitledJs);
-    assert.equal(lintStub.getCall(2).args[0].syntax, 'css-in-js');
-
-    const untitledWithSyntax = TextDocument.create('untitled:', 'css', 1, 'body {}');
-    await stylelintVSCode(untitledWithSyntax, { syntax: 'scss' });
-    assert.equal(lintStub.getCall(3).args[0].syntax, 'scss');
-
-    const config = { rules: { 'color-no-invalid-hex': true } };
-    const untitledWithConfig = TextDocument.create('untitled:', 'css', 1, 'body {}');
-    await stylelintVSCode(untitledWithConfig, { config });
-    assert.deepEqual(lintStub.getCall(4).args[0].config, config);
-  });
-
-  it('should handle untitled document with relative path (e.g., Untitled-1)', async () => {
-    // This simulates the actual VS Code behavior where untitled documents have relative paths
+  it('should not set config for untitled documents (no cwd)', async () => {
+    // Untitled documents have relative paths — stylelint-vscode should NOT
+    // pre-set config:{rules:{}}; let the error propagate to server.js
     const untitledDoc = TextDocument.create('untitled:Untitled-1', 'css', 1, 'body {}');
     await stylelintVSCode(untitledDoc);
 
     const callArgs = lintStub.firstCall.args[0];
     assert.equal(callArgs.code, 'body {}');
-    // Should NOT set codeFilename for relative paths (would cause stylelint error)
+    // Should NOT set codeFilename for relative paths
     assert.isUndefined(callArgs.codeFilename);
-    // Without cwd, should use empty config
-    assert.deepEqual(callArgs.config, { rules: {} });
+    // Should NOT force empty config — let stylelint handle config lookup
+    assert.isUndefined(callArgs.config);
   });
 
-  it('should use config file lookup when cwd is provided for untitled document', async () => {
+  it('should not set config for untitled documents when cwd is provided', async () => {
     const untitledDoc = TextDocument.create('untitled:Untitled-1', 'css', 1, 'body {}');
-    // When cwd is provided, stylelint can find config files, so don't force empty config
     await stylelintVSCode(untitledDoc, { cwd: '/workspace' });
 
     const callArgs = lintStub.firstCall.args[0];
     assert.equal(callArgs.code, 'body {}');
     assert.equal(callArgs.cwd, '/workspace');
-    // Should NOT have empty config forced - let stylelint find config from cwd
+    // Should NOT have config forced
     assert.isUndefined(callArgs.config);
   });
 
-  it('should fallback to css syntax check on No configuration provided error', async () => {
+  it('should propagate No configuration provided error to caller', async () => {
     const document = TextDocument.create('file:///test.css', 'css', 1, 'body {}');
     const error = new Error('No configuration provided for /test.css');
-    lintStub.onFirstCall().rejects(error);
-    lintStub.onSecondCall().resolves({
-      results: [{
-        invalidOptionWarnings: [],
-        warnings: []
-      }],
-      ruleMetadata: buildRuleMetadata()
-    });
+    lintStub.rejects(error);
 
-    await stylelintVSCode(document);
+    try {
+      await stylelintVSCode(document);
+      assert.fail('Should have thrown');
+    } catch (err) {
+      assert.equal(err.message, 'No configuration provided for /test.css');
+    }
 
-    assert.isTrue(lintStub.calledTwice);
-    const secondCallArgs = lintStub.secondCall.args[0];
-    assert.deepEqual(secondCallArgs.config, { rules: {} });
+    // Should only call lint once — no retry
+    assert.isTrue(lintStub.calledOnce);
+  });
+
+  it('should propagate No configuration provided error for non-CSS files', async () => {
+    const scssDoc = TextDocument.create('file:///test.scss', 'scss', 1, '$color: red;');
+    const error = new Error('No configuration provided for /test.scss');
+    lintStub.rejects(error);
+
+    try {
+      await stylelintVSCode(scssDoc);
+      assert.fail('Should have thrown');
+    } catch (err) {
+      assert.equal(err.message, 'No configuration provided for /test.scss');
+    }
+
+    assert.isTrue(lintStub.calledOnce);
+  });
+
+  it('should propagate No rules found error', async () => {
+    const lessDoc = TextDocument.create('file:///test.less', 'less', 1, '@color: red;');
+    const error = new Error('No rules found within configuration');
+    lintStub.rejects(error);
+
+    try {
+      await stylelintVSCode(lessDoc);
+      assert.fail('Should have thrown');
+    } catch (err) {
+      assert.equal(err.message, 'No rules found within configuration');
+    }
+
+    assert.isTrue(lintStub.calledOnce);
+  });
+
+  it('should propagate No configuration provided error for vue files', async () => {
+    const vueDoc = TextDocument.create('file:///App.vue', 'vue', 1, '<style>.a{}</style>');
+    const error = new Error('No configuration provided for /App.vue');
+    lintStub.rejects(error);
+
+    try {
+      await stylelintVSCode(vueDoc);
+      assert.fail('Should have thrown');
+    } catch (err) {
+      assert.equal(err.message, 'No configuration provided for /App.vue');
+    }
+
+    assert.isTrue(lintStub.calledOnce);
   });
 
   it('should rethrow other errors', async () => {
