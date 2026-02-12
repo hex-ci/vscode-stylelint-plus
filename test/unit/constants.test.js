@@ -1,7 +1,7 @@
 'use strict';
 
 const { assert } = require('chai');
-const constants = require('../../src/constants');
+const constants = require('../../src/shared/constants');
 
 describe('Constants', () => {
   it('should expose expected constants and values', () => {

@@ -2,7 +2,7 @@
 
 const { assert } = require('chai');
 const sinon = require('sinon');
-const DiagnosticsBatcher = require('../../src/diagnostics-batcher');
+const DiagnosticsBatcher = require('../../src/server/diagnostics-batcher');
 
 describe('DiagnosticsBatcher', () => {
   let batcher;

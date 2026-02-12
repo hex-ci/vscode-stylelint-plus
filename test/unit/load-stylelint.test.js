@@ -26,7 +26,7 @@ describe('loadStylelint', () => {
       readFileSync: sinon.stub()
     };
 
-    loadStylelint = proxyquire('../../src/load-stylelint', {
+    loadStylelint = proxyquire('../../src/server/load-stylelint', {
       'fs': fsStub,
       'stylelint': stylelintMock
     });

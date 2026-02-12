@@ -1,7 +1,9 @@
 'use strict';
 
 const { assert } = require('chai');
-const { isRangeOverlap, generateTextEdits } = require('../../src/utils');
+const sinon = require('sinon');
+const proxyquire = require('proxyquire').noCallThru();
+const { isRangeOverlap, generateTextEdits, isNodeModulesPath } = require('../../src/shared/utils');
 
 describe('Utils', () => {
   describe('isRangeOverlap', () => {
@@ -64,6 +66,38 @@ describe('Utils', () => {
       assert.equal(edits[0].newText, '');
       assert.equal(edits[0].range.start.character, 3);
       assert.equal(edits[0].range.end.character, 6);
+    });
+  });
+
+  describe('isNodeModulesPath', () => {
+    it('should return true for paths inside node_modules', () => {
+      assert.isTrue(isNodeModulesPath('file:///project/node_modules/pkg/style.css'));
+    });
+
+    it('should return true for Windows-style paths inside node_modules', () => {
+      assert.isTrue(isNodeModulesPath('file:///C:/project/node_modules/pkg/style.css'));
+    });
+
+    it('should return false for normal paths', () => {
+      assert.isFalse(isNodeModulesPath('file:///project/src/style.css'));
+    });
+
+    it('should return false when fsPath is empty', () => {
+      // 'custom:' scheme produces empty fsPath
+      assert.isFalse(isNodeModulesPath('custom:'));
+    });
+
+    it('should return false when parseUri throws (catch branch)', () => {
+      // Use proxyquire to mock vscode-uri so parseUri throws
+      const { isNodeModulesPath: isNodeModulesPathMocked } = proxyquire('../../src/shared/utils', {
+        'vscode-uri': {
+          URI: {
+            parse: sinon.stub().throws(new Error('parse error'))
+          }
+        }
+      });
+
+      assert.isFalse(isNodeModulesPathMocked('file:///anything'));
     });
   });
 });

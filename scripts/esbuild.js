@@ -27,13 +27,13 @@ const baseConfig = {
 
 const clientConfig = {
   ...baseConfig,
-  entryPoints: [path.join(__dirname, '../src/index.js')],
+  entryPoints: [path.join(__dirname, '../src/client/index.js')],
   outfile: path.join(__dirname, '../dist/index.js')
 };
 
 const serverConfig = {
   ...baseConfig,
-  entryPoints: [path.join(__dirname, '../src/server.js')],
+  entryPoints: [path.join(__dirname, '../src/server/entry.js')],
   outfile: path.join(__dirname, '../dist/server.js')
 };
 

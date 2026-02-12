@@ -2,7 +2,7 @@
 
 const { assert } = require('chai');
 const { DiagnosticSeverity } = require('vscode-languageserver-types');
-const stylelintWarningToVscodeDiagnostic = require('../../src/diagnostic');
+const stylelintWarningToVscodeDiagnostic = require('../../src/server/diagnostic');
 
 describe('stylelintWarningToVscodeDiagnostic', () => {
   it('should convert an error warning to a Diagnostic', () => {

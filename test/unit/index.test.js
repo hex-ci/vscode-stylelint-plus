@@ -9,6 +9,7 @@ describe('Extension Activation', () => {
   let languageClientMock;
   let clientInstanceMock;
   let languageClientCalled;
+  let languageStatusItemMock;
 
   beforeEach(() => {
     languageClientCalled = false;
@@ -32,6 +33,16 @@ describe('Extension Activation', () => {
       SettingMonitor: sinon.stub().returns({ start: sinon.stub() })
     };
 
+    languageStatusItemMock = {
+      text: '',
+      detail: '',
+      severity: 0,
+      command: undefined,
+      name: '',
+      busy: false,
+      dispose: sinon.stub()
+    };
+
     vscodeMock = {
       workspace: {
         createFileSystemWatcher: sinon.stub(),
@@ -42,21 +53,25 @@ describe('Extension Activation', () => {
         registerCommand: sinon.spy((cmd) => { console.log('Registering command:', cmd); return { dispose: sinon.stub() }; })
       },
       window: {
-        createStatusBarItem: sinon.stub().returns({
-          show: sinon.stub(),
-          tooltip: '',
-          command: ''
-        }),
-        activeTextEditor: { document: { uri: 'file:///test.css' } }
+        activeTextEditor: { document: { uri: 'file:///test.css' } },
+        showInformationMessage: sinon.stub(),
+        showWarningMessage: sinon.stub(),
+        showErrorMessage: sinon.stub()
       },
-      StatusBarAlignment: { Right: 1 },
-      ThemeColor: function(id) { this.id = id; },
+      languages: {
+        createLanguageStatusItem: sinon.stub().returns(languageStatusItemMock)
+      },
+      LanguageStatusSeverity: {
+        Information: 0,
+        Warning: 1,
+        Error: 2
+      },
       ExtensionContext: sinon.stub()
     };
   });
 
-  it('should expose statusBarItem for testing', () => {
-    const { activate, statusBarItem } = proxyquire('../../src/index', {
+  it('should expose languageStatusItem for testing', () => {
+    const { activate, languageStatusItem } = proxyquire('../../src/client/index', {
       'vscode': vscodeMock,
       'vscode-languageclient': languageClientMock,
       'path': { join: (...args) => args.join('/') }
@@ -64,21 +79,22 @@ describe('Extension Activation', () => {
 
     const context = {
       subscriptions: [],
+      extensionPath: '/test/ext',
       asAbsolutePath: (p) => `/abs/${p}`
     };
 
     // Before activation, it should be undefined
-    assert.isUndefined(statusBarItem());
+    assert.isUndefined(languageStatusItem());
 
     activate(context);
 
-    // After activation, it should return the status bar item
-    assert.isDefined(statusBarItem());
-    assert.isTrue(vscodeMock.window.createStatusBarItem.called);
+    // After activation, it should return the language status item
+    assert.isDefined(languageStatusItem());
+    assert.isTrue(vscodeMock.languages.createLanguageStatusItem.called);
   });
 
   it('should activate extension correctly', async () => {
-    const { activate } = proxyquire('../../src/index', {
+    const { activate } = proxyquire('../../src/client/index', {
       'vscode': vscodeMock,
       'vscode-languageclient': languageClientMock,
       'path': { join: (...args) => args.join('/') }
@@ -86,6 +102,7 @@ describe('Extension Activation', () => {
 
     const context = {
       subscriptions: [],
+      extensionPath: '/test/ext',
       asAbsolutePath: (p) => `/abs/${p}`
     };
 
@@ -100,18 +117,19 @@ describe('Extension Activation', () => {
     // Verify command registration
     assert.isTrue(vscodeMock.commands.registerCommand.calledWith('stylelint.executeAutofix'));
 
-    // Verify status bar
-    assert.isTrue(vscodeMock.window.createStatusBarItem.called);
+    // Verify language status item creation
+    assert.isTrue(vscodeMock.languages.createLanguageStatusItem.called);
+    assert.equal(languageStatusItemMock.name, 'Stylelint+');
   });
 
   it('should execute autofix command', async () => {
-    const { activate } = proxyquire('../../src/index', {
+    const { activate } = proxyquire('../../src/client/index', {
       'vscode': vscodeMock,
       'vscode-languageclient': languageClientMock,
       'path': { join: (...args) => args.join('/') }
     });
 
-    const context = { subscriptions: [], asAbsolutePath: (p) => `/abs/${p}` };
+    const context = { subscriptions: [], extensionPath: '/test/ext', asAbsolutePath: (p) => `/abs/${p}` };
     activate(context);
 
     // Wait for onReady callback
@@ -123,9 +141,7 @@ describe('Extension Activation', () => {
     clientInstanceMock.sendRequest = sinon.stub().resolves();
 
     // Execute command with no args (uses active editor)
-    // Need to set languageId for active document
     vscodeMock.window.activeTextEditor.document.languageId = 'css';
-    // And ensure documentSelector contains css (it does based on package.json)
 
     await commandHandler();
 
@@ -138,13 +154,13 @@ describe('Extension Activation', () => {
   });
 
   it('should handle missing active editor', async () => {
-    const { activate } = proxyquire('../../src/index', {
+    const { activate } = proxyquire('../../src/client/index', {
       'vscode': vscodeMock,
       'vscode-languageclient': languageClientMock,
       'path': { join: (...args) => args.join('/') }
     });
 
-    const context = { subscriptions: [], asAbsolutePath: (p) => `/abs/${p}` };
+    const context = { subscriptions: [], extensionPath: '/test/ext', asAbsolutePath: (p) => `/abs/${p}` };
     activate(context);
 
     // Wait for onReady callback
@@ -154,7 +170,6 @@ describe('Extension Activation', () => {
 
     // Set no active editor
     vscodeMock.window.activeTextEditor = undefined;
-    vscodeMock.window.showInformationMessage = sinon.stub();
 
     await commandHandler();
 
@@ -162,13 +177,13 @@ describe('Extension Activation', () => {
   });
 
   it('should show message when extension is disabled', async () => {
-    const { activate } = proxyquire('../../src/index', {
+    const { activate } = proxyquire('../../src/client/index', {
       'vscode': vscodeMock,
       'vscode-languageclient': languageClientMock,
       'path': { join: (...args) => args.join('/') }
     });
 
-    const context = { subscriptions: [], asAbsolutePath: (p) => `/abs/${p}` };
+    const context = { subscriptions: [], extensionPath: '/test/ext', asAbsolutePath: (p) => `/abs/${p}` };
     activate(context);
 
     await new Promise(resolve => setTimeout(resolve, 0));
@@ -177,7 +192,6 @@ describe('Extension Activation', () => {
 
     // Disable extension
     vscodeMock.workspace.getConfiguration.returns({ get: sinon.stub().returns(false) });
-    vscodeMock.window.showInformationMessage = sinon.stub();
 
     await commandHandler();
 
@@ -188,13 +202,13 @@ describe('Extension Activation', () => {
   });
 
   it('should handle unsupported language', async () => {
-    const { activate } = proxyquire('../../src/index', {
+    const { activate } = proxyquire('../../src/client/index', {
       'vscode': vscodeMock,
       'vscode-languageclient': languageClientMock,
       'path': { join: (...args) => args.join('/') }
     });
 
-    const context = { subscriptions: [], asAbsolutePath: (p) => `/abs/${p}` };
+    const context = { subscriptions: [], extensionPath: '/test/ext', asAbsolutePath: (p) => `/abs/${p}` };
     activate(context);
 
     // Wait for onReady callback
@@ -204,7 +218,6 @@ describe('Extension Activation', () => {
 
     // Set unsupported language
     vscodeMock.window.activeTextEditor = { document: { uri: { toString: () => 'file:///test.txt' }, languageId: 'plaintext' } };
-    vscodeMock.window.showInformationMessage = sinon.stub();
 
     await commandHandler();
 
@@ -212,21 +225,19 @@ describe('Extension Activation', () => {
   });
 
   it('should handle invalid uri string', async () => {
-    const { activate } = proxyquire('../../src/index', {
+    const { activate } = proxyquire('../../src/client/index', {
       'vscode': vscodeMock,
       'vscode-languageclient': languageClientMock,
       'path': { join: (...args) => args.join('/') }
     });
 
-    const context = { subscriptions: [], asAbsolutePath: (p) => `/abs/${p}` };
+    const context = { subscriptions: [], extensionPath: '/test/ext', asAbsolutePath: (p) => `/abs/${p}` };
     activate(context);
 
     // Wait for onReady callback
     await new Promise(resolve => setTimeout(resolve, 0));
 
     const commandHandler = vscodeMock.commands.registerCommand.firstCall.args[1];
-
-    vscodeMock.window.showErrorMessage = sinon.stub();
 
     // Pass string with only spaces
     await commandHandler('   ');
@@ -235,19 +246,18 @@ describe('Extension Activation', () => {
   });
 
   it('should handle request failure', async () => {
-    const { activate } = proxyquire('../../src/index', {
+    const { activate } = proxyquire('../../src/client/index', {
       'vscode': vscodeMock,
       'vscode-languageclient': languageClientMock,
       'path': { join: (...args) => args.join('/') }
     });
 
-    activate({ subscriptions: [] });
+    activate({ subscriptions: [], extensionPath: '/test/ext' });
     // Wait for onReady callback
     await new Promise(resolve => setTimeout(resolve, 0));
     const commandHandler = vscodeMock.commands.registerCommand.firstCall.args[1];
 
     vscodeMock.window.activeTextEditor.document.languageId = 'css';
-    vscodeMock.window.showErrorMessage = sinon.stub();
     clientInstanceMock.sendRequest = sinon.stub().rejects(new Error('Request failed'));
 
     await commandHandler();
@@ -256,18 +266,17 @@ describe('Extension Activation', () => {
   });
 
   it('should handle request failure without error message', async () => {
-    const { activate } = proxyquire('../../src/index', {
+    const { activate } = proxyquire('../../src/client/index', {
       'vscode': vscodeMock,
       'vscode-languageclient': languageClientMock,
       'path': { join: (...args) => args.join('/') }
     });
 
-    activate({ subscriptions: [] });
+    activate({ subscriptions: [], extensionPath: '/test/ext' });
     await new Promise(resolve => setTimeout(resolve, 0));
     const commandHandler = vscodeMock.commands.registerCommand.firstCall.args[1];
 
     vscodeMock.window.activeTextEditor.document.languageId = 'css';
-    vscodeMock.window.showErrorMessage = sinon.stub();
     clientInstanceMock.sendRequest = sinon.stub().rejects({ code: 'UNKNOWN' });
 
     await commandHandler();
@@ -275,14 +284,14 @@ describe('Extension Activation', () => {
     assert.isTrue(vscodeMock.window.showErrorMessage.calledWith(sinon.match('Stylelint fix failed')));
   });
 
-  it('should update status bar', async () => {
-    const { activate } = proxyquire('../../src/index', {
+  it('should update language status on version detected', async () => {
+    const { activate } = proxyquire('../../src/client/index', {
       'vscode': vscodeMock,
       'vscode-languageclient': languageClientMock,
       'path': { join: (...args) => args.join('/') }
     });
 
-    activate({ subscriptions: [] });
+    activate({ subscriptions: [], extensionPath: '/test/ext' });
 
     // Simulate client ready
     await clientInstanceMock.onReady.firstCall.returnValue;
@@ -290,48 +299,56 @@ describe('Extension Activation', () => {
     // Get handlers registered on client
     const versionDetected = clientInstanceMock.onNotification.args.find(args => args[0] === 'stylelint/versionDetected')[1];
 
-    // versionDetected with isFallback=false should show ok status
+    // Normal local version
     versionDetected({ version: '1.2.3', isLocal: true, isFallback: false });
-    assert.notInclude(vscodeMock.window.createStatusBarItem().text, '$(error)');
+    assert.equal(languageStatusItemMock.text, 'Stylelint+');
+    assert.include(languageStatusItemMock.detail, 'local v1.2.3');
+    assert.equal(languageStatusItemMock.severity, 0); // Information
+    assert.deepEqual(languageStatusItemMock.command, {
+      title: 'Open Output',
+      command: 'stylelint.openOutput'
+    });
 
-    versionDetected({ version: '1.2.3', isLocal: true });
-    // Check status bar text for version info
-    assert.include(vscodeMock.window.createStatusBarItem().text, 'local v1.2.3');
-
-    // Test bundled version
+    // Bundled version
     versionDetected({ version: '4.5.6', isLocal: false });
-    assert.include(vscodeMock.window.createStatusBarItem().text, 'bundled v4.5.6');
-    assert.include(vscodeMock.window.createStatusBarItem().tooltip, 'Using bundled stylelint 4.5.6');
+    assert.equal(languageStatusItemMock.text, 'Stylelint+');
+    assert.include(languageStatusItemMock.detail, 'bundled v4.5.6');
 
     // Test with undefined params
     versionDetected(undefined);
-    // Should not crash, version info remains from previous call
+    // Should not crash
 
-    // Test isFallback=true should show warn status bar
+    // Fallback state — should show warning with Retry command
     versionDetected({ version: '15.11.0', isLocal: false, isFallback: true });
-    assert.include(vscodeMock.window.createStatusBarItem().text, '$(warning)');
-    assert.include(vscodeMock.window.createStatusBarItem().text, 'bundled');
-    assert.include(vscodeMock.window.createStatusBarItem().tooltip, 'Local stylelint not found');
+    assert.equal(languageStatusItemMock.text, 'Stylelint+');
+    assert.include(languageStatusItemMock.detail, 'Local not found');
+    assert.include(languageStatusItemMock.detail, 'v15.11.0');
+    assert.equal(languageStatusItemMock.severity, 1); // Warning
+    assert.deepEqual(languageStatusItemMock.command, {
+      title: 'Retry local search',
+      command: 'stylelint.refreshLocalSearch'
+    });
 
-    // Test isFallback=true with no version — should show warn without version number
+    // Fallback with no version
     versionDetected({ version: null, isLocal: false, isFallback: true });
-    assert.include(vscodeMock.window.createStatusBarItem().text, '$(warning)');
-    assert.include(vscodeMock.window.createStatusBarItem().text, '(bundled)');
-    assert.notInclude(vscodeMock.window.createStatusBarItem().text, ' v');
+    assert.equal(languageStatusItemMock.text, 'Stylelint+');
+    assert.include(languageStatusItemMock.detail, 'Local not found');
+    assert.notInclude(languageStatusItemMock.detail, ' v');
+    assert.equal(languageStatusItemMock.severity, 1); // Warning
   });
 
   it('should ignore non-language activation events', () => {
     // Need to reload/re-proxyquire to change package.json
-    const { activate } = proxyquire('../../src/index', {
+    const { activate } = proxyquire('../../src/client/index', {
       'vscode': vscodeMock,
       'vscode-languageclient': languageClientMock,
       'path': { join: (...args) => args.join('/') },
-      '../package.json': {
+      '../../package.json': {
         activationEvents: ['onLanguage:css', 'workspaceContains:.stylelintrc']
       }
     });
 
-    activate({ subscriptions: [] });
+    activate({ subscriptions: [], extensionPath: '/test/ext' });
 
     const clientOptions = languageClientMock.LanguageClient.firstCall.args[2];
     const selector = clientOptions.documentSelector;
@@ -343,29 +360,299 @@ describe('Extension Activation', () => {
   });
 
   it('should handle missing activationEvents in package.json', () => {
-    const { activate } = proxyquire('../../src/index', {
+    const { activate } = proxyquire('../../src/client/index', {
       'vscode': vscodeMock,
       'vscode-languageclient': languageClientMock,
       'path': { join: (...args) => args.join('/') },
-      '../package.json': {}
+      '../../package.json': {}
     });
 
     // Should not throw
-    activate({ subscriptions: [] });
+    activate({ subscriptions: [], extensionPath: '/test/ext' });
 
     const clientOptions = languageClientMock.LanguageClient.firstCall.args[2];
     assert.isArray(clientOptions.documentSelector);
   });
 
-  // Note: Testing client === null is not feasible in the current architecture
-  // because client is created as a const in activate() and cannot become null later.
-  // The null check at index.js:115-116 is defensive programming for future lifecycle changes.
-  // It cannot be covered by unit tests without modifying the source code structure.
+  it('should not call start again when startClient is called while already running', async () => {
+    const getConfigStub = sinon.stub();
+    getConfigStub.withArgs('enable').returns(true);
 
-  it('should stop client when configuration changes to disabled', async () => {
-    // Mock getConfiguration to return false for 'enable'
+    const vscodeMockWithConfig = {
+      ...vscodeMock,
+      workspace: {
+        ...vscodeMock.workspace,
+        getConfiguration: sinon.stub().returns({ get: getConfigStub })
+      }
+    };
+
+    const { activate } = proxyquire('../../src/client/index', {
+      'vscode': vscodeMockWithConfig,
+      'vscode-languageclient': languageClientMock,
+      'path': { join: (...args) => args.join('/') }
+    });
+
+    const context = { subscriptions: [], extensionPath: '/test/ext', asAbsolutePath: (p) => `/abs/${p}` };
+    activate(context);
+
+    // Client was started during activate. Now simulate config change to enabled again.
+    const configChangeHandler = vscodeMockWithConfig.workspace.onDidChangeConfiguration.firstCall.args[0];
+
+    // Reset start stub to track new calls
+    clientInstanceMock.start = sinon.stub();
+
+    configChangeHandler({
+      affectsConfiguration: (key) => key === 'stylelint.enable'
+    });
+
+    // startClient should return early because clientRunning is already true
+    assert.isFalse(clientInstanceMock.start.called);
+  });
+
+  it('should not call stop again when stopClient is called while already stopped', async () => {
+    // Mock getConfiguration: initially disabled so client never starts
     const getConfigStub = sinon.stub();
     getConfigStub.withArgs('enable').returns(false);
+
+    const vscodeMockDisabled = {
+      ...vscodeMock,
+      workspace: {
+        ...vscodeMock.workspace,
+        getConfiguration: sinon.stub().returns({ get: getConfigStub })
+      }
+    };
+
+    const { activate } = proxyquire('../../src/client/index', {
+      'vscode': vscodeMockDisabled,
+      'vscode-languageclient': languageClientMock,
+      'path': { join: (...args) => args.join('/') }
+    });
+
+    const context = { subscriptions: [], extensionPath: '/test/ext', asAbsolutePath: (p) => `/abs/${p}` };
+    activate(context);
+
+    // Client was never started. Now simulate a config change to disabled.
+    const configChangeHandler = vscodeMockDisabled.workspace.onDidChangeConfiguration.firstCall.args[0];
+
+    clientInstanceMock.stop = sinon.stub();
+
+    configChangeHandler({
+      affectsConfiguration: (key) => key === 'stylelint.enable'
+    });
+
+    // stopClient should return early because clientRunning is false
+    assert.isFalse(clientInstanceMock.stop.called);
+  });
+
+  it('should show disabled message for lintWorkspace when extension is disabled', async () => {
+    vscodeMock.window.withProgress = sinon.stub().callsFake(async (_options, task) => {
+      const progress = { report: sinon.stub() };
+      return task(progress);
+    });
+
+    const { activate } = proxyquire('../../src/client/index', {
+      'vscode': vscodeMock,
+      'vscode-languageclient': languageClientMock,
+      'path': { join: (...args) => args.join('/') }
+    });
+
+    activate({ subscriptions: [], extensionPath: '/test/ext' });
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    const lintCall = vscodeMock.commands.registerCommand.getCalls().find(c => c.args[0] === 'stylelint.lintWorkspace');
+    const lintHandler = lintCall.args[1];
+
+    // Disable extension
+    vscodeMock.workspace.getConfiguration.returns({ get: sinon.stub().returns(false) });
+
+    await lintHandler();
+
+    assert.isTrue(vscodeMock.window.showInformationMessage.calledWith(sinon.match('disabled')));
+    // withProgress should NOT be called since we returned early
+    assert.isFalse(vscodeMock.window.withProgress.called);
+  });
+
+  it('should report progress during lintWorkspace via lintProgress notification', async () => {
+    let progressReportStub;
+
+    vscodeMock.window.withProgress = sinon.stub().callsFake(async (_options, task) => {
+      progressReportStub = sinon.stub();
+      const progress = { report: progressReportStub };
+      return task(progress);
+    });
+
+    const { activate } = proxyquire('../../src/client/index', {
+      'vscode': vscodeMock,
+      'vscode-languageclient': languageClientMock,
+      'path': { join: (...args) => args.join('/') }
+    });
+
+    activate({ subscriptions: [], extensionPath: '/test/ext' });
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    const lintCall = vscodeMock.commands.registerCommand.getCalls().find(c => c.args[0] === 'stylelint.lintWorkspace');
+    const lintHandler = lintCall.args[1];
+
+    let capturedProgressHandler;
+
+    clientInstanceMock.onNotification = sinon.stub().callsFake((_method, handler) => {
+      capturedProgressHandler = handler;
+      return { dispose: sinon.stub() };
+    });
+
+    clientInstanceMock.sendRequest = sinon.stub().callsFake(async () => {
+      // Simulate progress notification during the request
+      if (capturedProgressHandler) {
+        capturedProgressHandler({ current: 5, total: 10 });
+      }
+      return { filesScanned: 10, totalFiles: 10 };
+    });
+
+    await lintHandler();
+
+    // Verify progress was reported
+    assert.isTrue(progressReportStub.called);
+    const reportArg = progressReportStub.firstCall.args[0];
+    assert.include(reportArg.message, '5/10');
+    assert.include(reportArg.message, '50%');
+  });
+
+  it('should not report progress when total is 0', async () => {
+    let progressReportStub;
+
+    vscodeMock.window.withProgress = sinon.stub().callsFake(async (_options, task) => {
+      progressReportStub = sinon.stub();
+      const progress = { report: progressReportStub };
+      return task(progress);
+    });
+
+    const { activate } = proxyquire('../../src/client/index', {
+      'vscode': vscodeMock,
+      'vscode-languageclient': languageClientMock,
+      'path': { join: (...args) => args.join('/') }
+    });
+
+    activate({ subscriptions: [], extensionPath: '/test/ext' });
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    const lintCall = vscodeMock.commands.registerCommand.getCalls().find(c => c.args[0] === 'stylelint.lintWorkspace');
+    const lintHandler = lintCall.args[1];
+
+    let capturedProgressHandler;
+
+    clientInstanceMock.onNotification = sinon.stub().callsFake((_method, handler) => {
+      capturedProgressHandler = handler;
+      return { dispose: sinon.stub() };
+    });
+
+    clientInstanceMock.sendRequest = sinon.stub().callsFake(async () => {
+      if (capturedProgressHandler) {
+        capturedProgressHandler({ current: 0, total: 0 });
+      }
+      return { filesScanned: 0, totalFiles: 0 };
+    });
+
+    await lintHandler();
+
+    // progress.report should NOT be called when total is 0
+    assert.isFalse(progressReportStub.called);
+  });
+
+  it('should handle null params in lintProgress notification', async () => {
+    let progressReportStub;
+
+    vscodeMock.window.withProgress = sinon.stub().callsFake(async (_options, task) => {
+      progressReportStub = sinon.stub();
+      const progress = { report: progressReportStub };
+      return task(progress);
+    });
+
+    const { activate } = proxyquire('../../src/client/index', {
+      'vscode': vscodeMock,
+      'vscode-languageclient': languageClientMock,
+      'path': { join: (...args) => args.join('/') }
+    });
+
+    activate({ subscriptions: [], extensionPath: '/test/ext' });
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    const lintCall = vscodeMock.commands.registerCommand.getCalls().find(c => c.args[0] === 'stylelint.lintWorkspace');
+    const lintHandler = lintCall.args[1];
+
+    let capturedProgressHandler;
+
+    clientInstanceMock.onNotification = sinon.stub().callsFake((_method, handler) => {
+      capturedProgressHandler = handler;
+      return { dispose: sinon.stub() };
+    });
+
+    clientInstanceMock.sendRequest = sinon.stub().callsFake(async () => {
+      // Trigger with null params to hit the || {} fallback
+      if (capturedProgressHandler) {
+        capturedProgressHandler(null);
+      }
+      return { filesScanned: 0, totalFiles: 0 };
+    });
+
+    await lintHandler();
+
+    // Should not crash, and should not report progress
+    assert.isFalse(progressReportStub.called);
+  });
+
+  it('should handle lintWorkspace when onNotification does not return disposable', async () => {
+    vscodeMock.window.withProgress = sinon.stub().callsFake(async (_options, task) => {
+      const progress = { report: sinon.stub() };
+      return task(progress);
+    });
+
+    const { activate } = proxyquire('../../src/client/index', {
+      'vscode': vscodeMock,
+      'vscode-languageclient': languageClientMock,
+      'path': { join: (...args) => args.join('/') }
+    });
+
+    activate({ subscriptions: [], extensionPath: '/test/ext' });
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    const lintCall = vscodeMock.commands.registerCommand.getCalls().find(c => c.args[0] === 'stylelint.lintWorkspace');
+    const lintHandler = lintCall.args[1];
+
+    // onNotification returns undefined (no dispose method)
+    clientInstanceMock.onNotification = sinon.stub().returns(undefined);
+    clientInstanceMock.sendRequest = sinon.stub().resolves({ filesScanned: 5, totalFiles: 5 });
+
+    // Should not throw in finally block
+    await lintHandler();
+
+    assert.isTrue(vscodeMock.window.showInformationMessage.calledWith(sinon.match('5')));
+  });
+
+  it('should handle refreshLocalSearch error without message property', async () => {
+    const { activate } = proxyquire('../../src/client/index', {
+      'vscode': vscodeMock,
+      'vscode-languageclient': languageClientMock,
+      'path': { join: (...args) => args.join('/') }
+    });
+
+    activate({ subscriptions: [], extensionPath: '/test/ext' });
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    const refreshCall = vscodeMock.commands.registerCommand.getCalls().find(c => c.args[0] === 'stylelint.refreshLocalSearch');
+    const refreshHandler = refreshCall.args[1];
+
+    // Reject with an error that has no message property
+    clientInstanceMock.sendRequest = sinon.stub().rejects({ code: 'UNKNOWN' });
+
+    await refreshHandler();
+
+    assert.isTrue(vscodeMock.window.showErrorMessage.calledWith(sinon.match('Refresh failed')));
+  });
+
+  it('should stop client when configuration changes to disabled', async () => {
+    // Mock getConfiguration: initially enabled, then disabled on config change
+    const getConfigStub = sinon.stub();
+    getConfigStub.withArgs('enable').returns(true);
 
     const vscodeMockWithDisabled = {
       ...vscodeMock,
@@ -375,14 +662,17 @@ describe('Extension Activation', () => {
       }
     };
 
-    const { activate } = proxyquire('../../src/index', {
+    const { activate } = proxyquire('../../src/client/index', {
       'vscode': vscodeMockWithDisabled,
       'vscode-languageclient': languageClientMock,
       'path': { join: (...args) => args.join('/') }
     });
 
-    const context = { subscriptions: [], asAbsolutePath: (p) => `/abs/${p}` };
+    const context = { subscriptions: [], extensionPath: '/test/ext', asAbsolutePath: (p) => `/abs/${p}` };
     activate(context);
+
+    // Now switch to disabled
+    getConfigStub.withArgs('enable').returns(false);
 
     // Get the configuration change handler
     const configChangeHandler = vscodeMockWithDisabled.workspace.onDidChangeConfiguration.firstCall.args[0];
@@ -411,13 +701,13 @@ describe('Extension Activation', () => {
       }
     };
 
-    const { activate } = proxyquire('../../src/index', {
+    const { activate } = proxyquire('../../src/client/index', {
       'vscode': vscodeMockWithConfig,
       'vscode-languageclient': languageClientMock,
       'path': { join: (...args) => args.join('/') }
     });
 
-    const context = { subscriptions: [], asAbsolutePath: (p) => `/abs/${p}` };
+    const context = { subscriptions: [], extensionPath: '/test/ext', asAbsolutePath: (p) => `/abs/${p}` };
     activate(context);
 
     // Get the configuration change handler
@@ -438,13 +728,13 @@ describe('Extension Activation', () => {
   });
 
   it('should ignore configuration changes not affecting stylelint.enable', async () => {
-    const { activate } = proxyquire('../../src/index', {
+    const { activate } = proxyquire('../../src/client/index', {
       'vscode': vscodeMock,
       'vscode-languageclient': languageClientMock,
       'path': { join: (...args) => args.join('/') }
     });
 
-    const context = { subscriptions: [], asAbsolutePath: (p) => `/abs/${p}` };
+    const context = { subscriptions: [], extensionPath: '/test/ext', asAbsolutePath: (p) => `/abs/${p}` };
     activate(context);
 
     // Get the configuration change handler
@@ -487,15 +777,13 @@ describe('Extension Activation', () => {
       SettingMonitor: sinon.stub().returns({ start: sinon.stub() })
     };
 
-    vscodeMock.window.showErrorMessage = sinon.stub();
-
-    const { activate } = proxyquire('../../src/index', {
+    const { activate } = proxyquire('../../src/client/index', {
       'vscode': vscodeMock,
       'vscode-languageclient': failingLanguageClientMock,
       'path': { join: (...args) => args.join('/') }
     });
 
-    const context = { subscriptions: [], asAbsolutePath: (p) => `/abs/${p}` };
+    const context = { subscriptions: [], extensionPath: '/test/ext', asAbsolutePath: (p) => `/abs/${p}` };
     activate(context);
 
     // Wait for onReady promise to be rejected and catch handler to execute
@@ -510,13 +798,13 @@ describe('Extension Activation', () => {
   });
 
   it('should deactivate and stop client', async () => {
-    const { activate, deactivate } = proxyquire('../../src/index', {
+    const { activate, deactivate } = proxyquire('../../src/client/index', {
       'vscode': vscodeMock,
       'vscode-languageclient': languageClientMock,
       'path': { join: (...args) => args.join('/') }
     });
 
-    const context = { subscriptions: [], asAbsolutePath: (p) => `/abs/${p}` };
+    const context = { subscriptions: [], extensionPath: '/test/ext', asAbsolutePath: (p) => `/abs/${p}` };
     activate(context);
 
     clientInstanceMock.stop = sinon.stub().resolves();
@@ -527,7 +815,7 @@ describe('Extension Activation', () => {
   });
 
   it('should handle deactivate when client is not initialized', async () => {
-    const { deactivate } = proxyquire('../../src/index', {
+    const { deactivate } = proxyquire('../../src/client/index', {
       'vscode': vscodeMock,
       'vscode-languageclient': languageClientMock,
       'path': { join: (...args) => args.join('/') }
@@ -538,5 +826,307 @@ describe('Extension Activation', () => {
 
     // Should not throw and client mock should not be touched
     assert.isFalse(clientInstanceMock.stop.called);
+  });
+
+  it('should register refreshLocalSearch command', async () => {
+    const { activate } = proxyquire('../../src/client/index', {
+      'vscode': vscodeMock,
+      'vscode-languageclient': languageClientMock,
+      'path': { join: (...args) => args.join('/') }
+    });
+
+    activate({ subscriptions: [], extensionPath: '/test/ext' });
+
+    assert.isTrue(vscodeMock.commands.registerCommand.calledWith('stylelint.refreshLocalSearch'));
+  });
+
+  it('should send refresh request when refreshLocalSearch command is executed', async () => {
+    const { activate } = proxyquire('../../src/client/index', {
+      'vscode': vscodeMock,
+      'vscode-languageclient': languageClientMock,
+      'path': { join: (...args) => args.join('/') }
+    });
+
+    activate({ subscriptions: [], extensionPath: '/test/ext' });
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    const refreshCall = vscodeMock.commands.registerCommand.getCalls().find(c => c.args[0] === 'stylelint.refreshLocalSearch');
+    const refreshHandler = refreshCall.args[1];
+
+    clientInstanceMock.sendRequest = sinon.stub().resolves();
+
+    await refreshHandler();
+
+    assert.isTrue(clientInstanceMock.sendRequest.calledWith('stylelint/refreshLocalSearch'));
+    assert.isFalse(languageStatusItemMock.busy);
+  });
+
+  it('should show busy state during refresh', async () => {
+    const { activate } = proxyquire('../../src/client/index', {
+      'vscode': vscodeMock,
+      'vscode-languageclient': languageClientMock,
+      'path': { join: (...args) => args.join('/') }
+    });
+
+    activate({ subscriptions: [], extensionPath: '/test/ext' });
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    const refreshCall = vscodeMock.commands.registerCommand.getCalls().find(c => c.args[0] === 'stylelint.refreshLocalSearch');
+    const refreshHandler = refreshCall.args[1];
+
+    let busyDuringRequest = false;
+
+    clientInstanceMock.sendRequest = sinon.stub().callsFake(() => {
+      busyDuringRequest = languageStatusItemMock.busy;
+      return Promise.resolve();
+    });
+
+    await refreshHandler();
+
+    assert.isTrue(busyDuringRequest, 'should be busy during request');
+    assert.isFalse(languageStatusItemMock.busy, 'should not be busy after request');
+    assert.include(languageStatusItemMock.detail, 'Searching');
+  });
+
+  it('should show warning when still in fallback after refresh', async () => {
+    const { activate } = proxyquire('../../src/client/index', {
+      'vscode': vscodeMock,
+      'vscode-languageclient': languageClientMock,
+      'path': { join: (...args) => args.join('/') }
+    });
+
+    activate({ subscriptions: [], extensionPath: '/test/ext' });
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    // Simulate fallback state
+    const versionHandler = clientInstanceMock.onNotification.args.find(args => args[0] === 'stylelint/versionDetected')[1];
+    versionHandler({ version: '15.11.0', isLocal: false, isFallback: true });
+
+    const refreshCall = vscodeMock.commands.registerCommand.getCalls().find(c => c.args[0] === 'stylelint.refreshLocalSearch');
+    const refreshHandler = refreshCall.args[1];
+
+    clientInstanceMock.sendRequest = sinon.stub().resolves();
+
+    await refreshHandler();
+
+    assert.isTrue(vscodeMock.window.showWarningMessage.calledWith(sinon.match('still not found')));
+  });
+
+  it('should show error when refreshLocalSearch fails', async () => {
+    const { activate } = proxyquire('../../src/client/index', {
+      'vscode': vscodeMock,
+      'vscode-languageclient': languageClientMock,
+      'path': { join: (...args) => args.join('/') }
+    });
+
+    activate({ subscriptions: [], extensionPath: '/test/ext' });
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    const refreshCall = vscodeMock.commands.registerCommand.getCalls().find(c => c.args[0] === 'stylelint.refreshLocalSearch');
+    const refreshHandler = refreshCall.args[1];
+
+    clientInstanceMock.sendRequest = sinon.stub().rejects(new Error('Connection lost'));
+
+    await refreshHandler();
+
+    assert.isTrue(vscodeMock.window.showErrorMessage.calledWith(sinon.match('Refresh failed')));
+  });
+
+  it('should register openOutput command', () => {
+    const { activate } = proxyquire('../../src/client/index', {
+      'vscode': vscodeMock,
+      'vscode-languageclient': languageClientMock,
+      'path': { join: (...args) => args.join('/') }
+    });
+
+    activate({ subscriptions: [], extensionPath: '/test/ext' });
+
+    assert.isTrue(vscodeMock.commands.registerCommand.calledWith('stylelint.openOutput'));
+  });
+
+  it('should open output channel when openOutput command is executed', () => {
+    clientInstanceMock.outputChannel = { show: sinon.stub() };
+
+    const { activate } = proxyquire('../../src/client/index', {
+      'vscode': vscodeMock,
+      'vscode-languageclient': languageClientMock,
+      'path': { join: (...args) => args.join('/') }
+    });
+
+    activate({ subscriptions: [], extensionPath: '/test/ext' });
+
+    const openOutputCall = vscodeMock.commands.registerCommand.getCalls().find(c => c.args[0] === 'stylelint.openOutput');
+    openOutputCall.args[1]();
+
+    assert.isTrue(clientInstanceMock.outputChannel.show.called);
+  });
+
+  it('should register validateNow command', () => {
+    const { activate } = proxyquire('../../src/client/index', {
+      'vscode': vscodeMock,
+      'vscode-languageclient': languageClientMock,
+      'path': { join: (...args) => args.join('/') }
+    });
+
+    activate({ subscriptions: [], extensionPath: '/test/ext' });
+
+    assert.isTrue(vscodeMock.commands.registerCommand.calledWith('stylelint.validateNow'));
+  });
+
+  it('should send validateNow request with active editor uri', async () => {
+    const { activate } = proxyquire('../../src/client/index', {
+      'vscode': vscodeMock,
+      'vscode-languageclient': languageClientMock,
+      'path': { join: (...args) => args.join('/') }
+    });
+
+    activate({ subscriptions: [], extensionPath: '/test/ext' });
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    const validateCall = vscodeMock.commands.registerCommand.getCalls().find(c => c.args[0] === 'stylelint.validateNow');
+    const validateHandler = validateCall.args[1];
+
+    vscodeMock.window.activeTextEditor = { document: { uri: { toString: () => 'file:///test.css' } } };
+    clientInstanceMock.sendRequest = sinon.stub().resolves();
+
+    await validateHandler();
+
+    assert.isTrue(clientInstanceMock.sendRequest.calledWith('stylelint/validateNow', { uri: 'file:///test.css' }));
+  });
+
+  it('should send validateNow request without uri when no active editor', async () => {
+    const { activate } = proxyquire('../../src/client/index', {
+      'vscode': vscodeMock,
+      'vscode-languageclient': languageClientMock,
+      'path': { join: (...args) => args.join('/') }
+    });
+
+    activate({ subscriptions: [], extensionPath: '/test/ext' });
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    const validateCall = vscodeMock.commands.registerCommand.getCalls().find(c => c.args[0] === 'stylelint.validateNow');
+    const validateHandler = validateCall.args[1];
+
+    vscodeMock.window.activeTextEditor = undefined;
+    clientInstanceMock.sendRequest = sinon.stub().resolves();
+
+    await validateHandler();
+
+    assert.isTrue(clientInstanceMock.sendRequest.calledWith('stylelint/validateNow', {}));
+  });
+
+  it('should show disabled message for validateNow when extension is disabled', async () => {
+    const { activate } = proxyquire('../../src/client/index', {
+      'vscode': vscodeMock,
+      'vscode-languageclient': languageClientMock,
+      'path': { join: (...args) => args.join('/') }
+    });
+
+    activate({ subscriptions: [], extensionPath: '/test/ext' });
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    const validateCall = vscodeMock.commands.registerCommand.getCalls().find(c => c.args[0] === 'stylelint.validateNow');
+    const validateHandler = validateCall.args[1];
+
+    vscodeMock.workspace.getConfiguration.returns({ get: sinon.stub().returns(false) });
+
+    await validateHandler();
+
+    assert.isTrue(vscodeMock.window.showInformationMessage.calledWith(sinon.match('disabled')));
+  });
+
+  it('should register lintWorkspace command', () => {
+    const { activate } = proxyquire('../../src/client/index', {
+      'vscode': vscodeMock,
+      'vscode-languageclient': languageClientMock,
+      'path': { join: (...args) => args.join('/') }
+    });
+
+    activate({ subscriptions: [], extensionPath: '/test/ext' });
+
+    assert.isTrue(vscodeMock.commands.registerCommand.calledWith('stylelint.lintWorkspace'));
+  });
+
+  it('should send lintWorkspace request with progress', async () => {
+    // Add withProgress mock
+    vscodeMock.window.withProgress = sinon.stub().callsFake(async (_options, task) => {
+      const progress = { report: sinon.stub() };
+
+      return task(progress);
+    });
+
+    const { activate } = proxyquire('../../src/client/index', {
+      'vscode': vscodeMock,
+      'vscode-languageclient': languageClientMock,
+      'path': { join: (...args) => args.join('/') }
+    });
+
+    activate({ subscriptions: [], extensionPath: '/test/ext' });
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    const lintCall = vscodeMock.commands.registerCommand.getCalls().find(c => c.args[0] === 'stylelint.lintWorkspace');
+    const lintHandler = lintCall.args[1];
+
+    clientInstanceMock.sendRequest = sinon.stub().resolves({ filesScanned: 10, totalFiles: 15 });
+    clientInstanceMock.onNotification = sinon.stub().returns({ dispose: sinon.stub() });
+
+    await lintHandler();
+
+    assert.isTrue(clientInstanceMock.sendRequest.calledWith('stylelint/lintWorkspace', {}));
+    assert.isTrue(vscodeMock.window.showInformationMessage.calledWith(sinon.match('10')));
+  });
+
+  it('should show error when lintWorkspace fails', async () => {
+    vscodeMock.window.withProgress = sinon.stub().callsFake(async (_options, task) => {
+      const progress = { report: sinon.stub() };
+
+      return task(progress);
+    });
+
+    const { activate } = proxyquire('../../src/client/index', {
+      'vscode': vscodeMock,
+      'vscode-languageclient': languageClientMock,
+      'path': { join: (...args) => args.join('/') }
+    });
+
+    activate({ subscriptions: [], extensionPath: '/test/ext' });
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    const lintCall = vscodeMock.commands.registerCommand.getCalls().find(c => c.args[0] === 'stylelint.lintWorkspace');
+    const lintHandler = lintCall.args[1];
+
+    clientInstanceMock.sendRequest = sinon.stub().rejects(new Error('Scan failed'));
+    clientInstanceMock.onNotification = sinon.stub().returns({ dispose: sinon.stub() });
+
+    await lintHandler();
+
+    assert.isTrue(vscodeMock.window.showErrorMessage.calledWith(sinon.match('lint failed')));
+  });
+
+  it('should show error when lintWorkspace fails with error without message', async () => {
+    vscodeMock.window.withProgress = sinon.stub().callsFake(async (_options, task) => {
+      const progress = { report: sinon.stub() };
+
+      return task(progress);
+    });
+
+    const { activate } = proxyquire('../../src/client/index', {
+      'vscode': vscodeMock,
+      'vscode-languageclient': languageClientMock,
+      'path': { join: (...args) => args.join('/') }
+    });
+
+    activate({ subscriptions: [], extensionPath: '/test/ext' });
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    const lintCall = vscodeMock.commands.registerCommand.getCalls().find(c => c.args[0] === 'stylelint.lintWorkspace');
+    const lintHandler = lintCall.args[1];
+
+    clientInstanceMock.sendRequest = sinon.stub().rejects({ code: 'UNKNOWN' });
+    clientInstanceMock.onNotification = sinon.stub().returns({ dispose: sinon.stub() });
+
+    await lintHandler();
+
+    assert.isTrue(vscodeMock.window.showErrorMessage.calledWith(sinon.match('lint failed')));
   });
 });

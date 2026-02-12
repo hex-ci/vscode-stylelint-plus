@@ -2,7 +2,7 @@
 
 const { assert } = require('chai');
 const sinon = require('sinon');
-const DocumentDiagnosticsManager = require('../../src/document-diagnostics-manager');
+const DocumentDiagnosticsManager = require('../../src/server/document-diagnostics-manager');
 
 describe('DocumentDiagnosticsManager', () => {
   let manager;

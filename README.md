@@ -10,11 +10,12 @@ A [Visual Studio Code](https://code.visualstudio.com/) extension to lint [CSS](h
 
 - 🚀 **Zero-config ready** — Bundled stylelint v15, works out of the box without installing anything extra
 - 💾 **Auto-fix on save** — Native `onWillSaveWaitUntil` integration, no need to configure `codeActionsOnSave`
-- 💡 **Quick Fix support** — Fix individual issues or all problems via the light bulb menu
+- 💡 **Quick Fix support** — Fix individual issues, fix all problems, or disable rules via the light bulb menu
 - 🌐 **20+ languages built-in** — CSS, SCSS, Less, Vue, Svelte, styled-components, HTML, Markdown, and more
 - 🔄 **Stylelint v14 – v17** — Automatic version detection with seamless CJS/ESM support
-- 📊 **Status bar indicator** — Real-time display of stylelint version and status
+- 📊 **Language status indicator** — Real-time display of stylelint version and status
 - 🛡️ **CSS syntax fallback** — Catches syntax errors even without a stylelint config file
+- 🔍 **Workspace linting** — Lint all style files across the entire workspace in one go
 
 ![screenshot](https://github.com/hex-ci/vscode-stylelint-plus/raw/main/screenshot.png)
 
@@ -25,7 +26,11 @@ A [Visual Studio Code](https://code.visualstudio.com/) extension to lint [CSS](h
 | Bundled stylelint (zero-config) | ✅ v15 included | ❌ Must install separately |
 | Auto-fix on save | ✅ Built-in setting | ⚙️ Requires `codeActionsOnSave` config |
 | Default language support | ✅ 20+ languages | ⚠️ CSS & PostCSS only |
-| Status bar version indicator | ✅ | ❌ |
+| Validation trigger modes | ✅ onType / onSave / manual | ⚠️ onType only |
+| Workspace-wide linting | ✅ | ❌ |
+| Disable rule via code action | ✅ | ❌ |
+| Rule severity customization | ✅ | ❌ |
+| Language status version indicator | ✅ | ❌ |
 | CSS syntax fallback (no config) | ✅ | ❌ |
 | Stylelint version support | v14 – v17 | v14 – v17 |
 
@@ -95,9 +100,9 @@ The extension will automatically detect and use the ESM version.
 
 #### Version Indicator
 
-Check the status bar (bottom-right) to see which stylelint version is active:
-- `Stylelint+ (bundled v15.11.0)` - Using extension's bundled version
-- `Stylelint+ (local v17.0.0)` - Using project's local version
+The extension registers a Language Status item that appears next to the language indicator in the status bar. Click the language name (e.g., "CSS") to see it:
+- `Stylelint+ — bundled v15.11.0` - Using extension's bundled version
+- `Stylelint+ — local v17.0.0` - Using project's local version
 
 ### Features
 
@@ -114,19 +119,30 @@ This extension provides multiple ways to fix stylelint issues:
 - Choose from available fixes:
   - **Fix: [specific issue]** - Fix only the issue at the current cursor position
   - **Fix all auto-fixable stylelint problems** - Fix all auto-fixable issues in the current file
+  - **Disable [rule] for this line** - Insert a `/* stylelint-disable-next-line */` or `/* stylelint-disable-line */` comment to suppress the diagnostic
 
 **3. Manual Command**
 - Execute the command `Stylelint: Fix all auto-fixable problems` from the Command Palette (`Ctrl+Shift+P` or `Cmd+Shift+P`)
 - Fixes all auto-fixable issues in the currently active document
 - Works on all supported file types
 
-#### Status Bar Indicator
+#### Workspace Linting
 
-The extension displays a status bar item in the bottom-right corner showing:
-- **Normal state**: Stylelint is running successfully
-  - Example: `Stylelint+ (bundled v15.11.0)` or `Stylelint+ (local v17.0.0)`
-- **Error state**: Shows error icon `Stylelint+` when stylelint encountered an error (e.g., local version not found)
-- Hover over the status bar item to see detailed version information
+Lint all style files across the entire workspace at once:
+
+- Execute `Stylelint: Lint entire workspace` from the Command Palette
+- Scans `.css`, `.scss`, `.less`, `.sass`, `.vue`, `.svelte`, `.html`, `.xml`, `.xsl`, `.md` files
+- Shows progress notification during scanning
+- Automatically skips `node_modules`, `.git`, `dist`, `build`, `coverage`, `.next`, `.nuxt` directories
+- Files larger than 5MB are skipped
+
+#### Language Status Indicator
+
+The extension registers a [Language Status](https://code.visualstudio.com/api/references/vscode-api#LanguageStatusItem) item that appears next to the language indicator in the status bar. Click the language name (e.g., "CSS", "SCSS") to see it:
+
+- **Normal state**: `Stylelint+ — bundled v15.11.0` or `Stylelint+ — local v17.0.0`. Click to open the output channel.
+- **Warning state**: `Stylelint+ — ⚠ Local not found, using bundled v15.11.0`. Shown when `useLocal` is enabled but local stylelint was not found. Click to retry the search.
+- **Ready state**: `Stylelint+ — Ready`. Shown before the first validation completes.
 
 #### Fallback to Syntax Checking
 
@@ -136,6 +152,18 @@ If no stylelint configuration is found (no `.stylelintrc` or other config files)
 - Continue to work without showing configuration errors
 
 This allows you to catch syntax errors even before setting up full stylelint rules.
+
+### Commands
+
+All commands are available from the Command Palette (`Ctrl+Shift+P` or `Cmd+Shift+P`):
+
+| Command | Description |
+|---------|-------------|
+| `Stylelint: Fix all auto-fixable problems` | Fix all auto-fixable issues in the current file |
+| `Stylelint: Validate current file` | Manually trigger validation for the active file (useful in `manual` mode) |
+| `Stylelint: Lint entire workspace` | Lint all style files in the workspace |
+| `Stylelint: Refresh local stylelint search` | Re-scan for local stylelint installation (clears cache) |
+| `Stylelint: Show output channel` | Open the Stylelint output panel for debugging |
 
 ### Supported Languages
 
@@ -184,6 +212,25 @@ Automatically fix all auto-fixable stylelint issues when saving a file.
 
 **Note**: This setting applies fixes to the entire file on save. For more granular control, use [Quick Fix](#auto-fix-and-quick-fix) instead.
 
+#### stylelint.run
+
+Type: `string`
+Default: `"onType"`
+Values: `"onType"` | `"onSave"` | `"manual"`
+
+Controls when stylelint validation is triggered.
+
+- `"onType"` — Validate as you type (default). Diagnostics update in real-time with a 150ms debounce.
+- `"onSave"` — Validate only when the file is saved. Reduces CPU usage for large projects.
+- `"manual"` — Validate only when explicitly triggered via the `Stylelint: Validate current file` command.
+
+Example — validate only on save for better performance:
+```json
+{
+  "stylelint.run": "onSave"
+}
+```
+
 #### stylelint.config
 
 Type: `Object`
@@ -192,6 +239,32 @@ Default: `null`
 Set stylelint [`config`](https://github.com/stylelint/stylelint/blob/main/docs/user-guide/node-api.md#config) option.
 
 **Important**: When this option is set, stylelint **will not** load configuration files (`.stylelintrc`, `stylelint.config.js`, etc.).
+
+Example:
+```json
+{
+  "stylelint.config": {
+    "rules": {
+      "color-no-invalid-hex": true,
+      "block-no-empty": true
+    }
+  }
+}
+```
+
+#### stylelint.configFile
+
+Type: `string`
+Default: `""`
+
+Path to a stylelint configuration file. Relative paths are resolved from the workspace root. When set, this takes precedence over `stylelint.config`.
+
+Example:
+```json
+{
+  "stylelint.configFile": ".config/stylelint.config.js"
+}
+```
 
 #### stylelint.useLocal
 
@@ -203,14 +276,75 @@ Use the locally installed version of stylelint from your project's `node_modules
 **How it works**:
 - The extension searches upward from the current file's directory for `node_modules/stylelint`
 - Supports stylelint v14, v15, v16, and v17 with automatic version detection
-- If local stylelint is not found, the extension will show an error status in the status bar
+- If local stylelint is not found, the extension falls back to the bundled version and shows a warning in the status bar
+
+#### stylelint.ignorePath
+
+Type: `string`
+Default: `""`
+
+Path to a `.stylelintignore` file. Relative paths are resolved from the workspace root. When empty, the extension auto-discovers `.stylelintignore` by walking up from the document's directory.
+
+Example:
+```json
+{
+  "stylelint.ignorePath": ".config/.stylelintignore"
+}
+```
+
+#### stylelint.ignoreNodeModules
+
+Type: `boolean`
+Default: `true`
+
+Whether to skip validation for files inside `node_modules` directories.
 
 #### stylelint.disableErrorMessage
 
 Type: `boolean`
 Default: `true`
 
-Whether to suppress error message popups. When enabled, errors are logged to the console but don't show as VS Code notifications.
+Whether to suppress error message popups. When enabled, errors are logged to the output channel but don't show as VS Code notifications.
+
+#### stylelint.rules.customizations
+
+Type: `Array`
+Default: `[]`
+
+Override the severity of specific stylelint rules in VS Code diagnostics, without modifying your stylelint config. Use `"off"` to suppress a rule entirely.
+
+Each entry has:
+- `rule` — The stylelint rule name
+- `severity` — One of `"error"`, `"warning"`, `"information"`, `"hint"`, or `"off"`
+
+Example — downgrade `color-named` to a hint and suppress `block-no-empty`:
+```json
+{
+  "stylelint.rules.customizations": [
+    { "rule": "color-named", "severity": "hint" },
+    { "rule": "block-no-empty", "severity": "off" }
+  ]
+}
+```
+
+#### stylelint.codeAction.disableRuleComment
+
+Type: `Object`
+Default: `{ "location": "separateLine" }`
+
+Controls where the "Disable rule" code action inserts the `stylelint-disable` comment.
+
+- `"separateLine"` (default) — Inserts `/* stylelint-disable-next-line <rule> */` on the line above
+- `"sameLine"` — Appends `/* stylelint-disable-line <rule> */` at the end of the same line
+
+Example — use same-line comments:
+```json
+{
+  "stylelint.codeAction.disableRuleComment": {
+    "location": "sameLine"
+  }
+}
+```
 
 ## License
 

@@ -71,7 +71,8 @@ describe('Server', () => {
 
     utilsStub = {
       isRangeOverlap: sinon.stub().returns(true),
-      generateTextEdits: sinon.stub().returns([])
+      generateTextEdits: sinon.stub().returns([]),
+      isNodeModulesPath: sinon.stub().callsFake((uri) => uri.includes('node_modules'))
     };
 
     // Mock the new classes
@@ -104,18 +105,18 @@ describe('Server', () => {
     DiagnosticsBatcherStub = sinon.stub().returns(mockBatcher);
 
     // Get the StylelintServer class with mocked dependencies
-    const serverModule = proxyquire('../../src/server', {
+    const serverModule = proxyquire('../../src/server/stylelint-server', {
       './stylelint-vscode': stylelintVSCodeStub,
       'find-pkg-dir': findPkgDirStub,
       'fs': {
         existsSync: sinon.stub().returns(true),
         promises: fsPromisesStub
       },
-      './utils': utilsStub,
-      './lru-cache': LRUCacheStub,
+      '../shared/utils': utilsStub,
+      '../shared/lru-cache': LRUCacheStub,
       './document-diagnostics-manager': DocumentDiagnosticsManagerStub,
       './diagnostics-batcher': DiagnosticsBatcherStub,
-      './constants': {
+      '../shared/constants': {
         STYLELINT_ERROR_CODE_CONFIG: 78,
         DIAGNOSTIC_OVERLAP_LINE_THRESHOLD: 1,
         DIAGNOSTIC_OVERLAP_CHAR_THRESHOLD: 2,
@@ -127,27 +128,17 @@ describe('Server', () => {
       }
     });
 
-    StylelintServer = serverModule.StylelintServer;
+    StylelintServer = serverModule;
 
     // Reset stubs that might have been changed by previous tests
     findPkgDirStub.returns(null);
   });
 
   afterEach(() => {
-    if (processOnStub) {
-      processOnStub.restore();
-      processOnStub = null;
-    }
-
-    if (parseUriStub) {
-      parseUriStub.restore();
-      parseUriStub = null;
-    }
-
-    if (clock) {
-      clock.restore();
-      clock = null;
-    }
+    sinon.restore();
+    processOnStub = null;
+    parseUriStub = null;
+    clock = null;
   });
 
   describe('Constructor', () => {
@@ -792,9 +783,280 @@ describe('Server', () => {
 
       assert.deepEqual(extra, {fix: true});
     });
+
+    it('should cache resolution result and skip filesystem on second call', async () => {
+      const server = new StylelintServer(connectionMock, documentsMock);
+      const document = {
+        uri: 'file:///workspace/test.css',
+        getText: () => 'a { color: red; }'
+      };
+
+      server.resolveStylelintOptions = sinon.stub().resolves({
+        ignorePath: '/workspace/.stylelintignore',
+        path: '/workspace/node_modules/stylelint'
+      });
+
+      connectionMock.workspace.getWorkspaceFolders.resolves([
+        { uri: 'file:///workspace' }
+      ]);
+
+      // First call — should invoke resolveStylelintOptions
+      await server.buildStylelintOptions(document);
+      assert.equal(server.resolveStylelintOptions.callCount, 1);
+
+      // Second call — should use cache, not call resolveStylelintOptions again
+      await server.buildStylelintOptions(document);
+      assert.equal(server.resolveStylelintOptions.callCount, 1);
+    });
+
+    it('should cache localNotFound for untitled documents', async () => {
+      const server = new StylelintServer(connectionMock, documentsMock);
+      server.useLocal = true;
+
+      const document = {
+        uri: 'untitled:Untitled-1',
+        getText: () => 'a { color: red; }'
+      };
+
+      connectionMock.workspace.getWorkspaceFolders.resolves([
+        { uri: 'file:///workspace' }
+      ]);
+
+      fsPromisesStub.access.rejects(new Error('ENOENT'));
+
+      // First call — triggers fsPromises.access
+      const result1 = await server.buildStylelintOptions(document);
+      assert.isTrue(result1.localNotFound);
+      assert.equal(fsPromisesStub.access.callCount, 1);
+
+      // Second call — should use cache
+      const result2 = await server.buildStylelintOptions(document);
+      assert.isTrue(result2.localNotFound);
+      assert.equal(fsPromisesStub.access.callCount, 1);
+    });
+
+    it('should use cached path for untitled documents with useLocal', async () => {
+      const server = new StylelintServer(connectionMock, documentsMock);
+      server.useLocal = true;
+
+      const document = {
+        uri: 'untitled:Untitled-1',
+        getText: () => 'a { color: red; }'
+      };
+
+      connectionMock.workspace.getWorkspaceFolders.resolves([
+        { uri: 'file:///workspace' }
+      ]);
+
+      fsPromisesStub.access.resolves();
+
+      // First call — triggers fsPromises.access and caches the path
+      const result1 = await server.buildStylelintOptions(document);
+      assert.isFalse(result1.localNotFound);
+      assert.equal(result1.options.path, '/workspace/node_modules/stylelint');
+      assert.equal(fsPromisesStub.access.callCount, 1);
+
+      // Second call — should use cached path (line 382)
+      const result2 = await server.buildStylelintOptions(document);
+      assert.isFalse(result2.localNotFound);
+      assert.equal(result2.options.path, '/workspace/node_modules/stylelint');
+      assert.equal(fsPromisesStub.access.callCount, 1); // not called again
+    });
+
+    it('should re-resolve after clearResolutionCache', async () => {
+      const server = new StylelintServer(connectionMock, documentsMock);
+      const document = {
+        uri: 'file:///workspace/test.css',
+        getText: () => 'a { color: red; }'
+      };
+
+      server.resolveStylelintOptions = sinon.stub().resolves({
+        ignorePath: '/workspace/.stylelintignore'
+      });
+
+      connectionMock.workspace.getWorkspaceFolders.resolves([
+        { uri: 'file:///workspace' }
+      ]);
+
+      await server.buildStylelintOptions(document);
+      assert.equal(server.resolveStylelintOptions.callCount, 1);
+
+      server.clearResolutionCache();
+
+      await server.buildStylelintOptions(document);
+      assert.equal(server.resolveStylelintOptions.callCount, 2);
+    });
+
+    it('should use configFile setting when provided', async () => {
+      const server = new StylelintServer(connectionMock, documentsMock);
+      server.configFile = '/absolute/path/.stylelintrc.json';
+
+      const document = {
+        uri: 'file:///workspace/test.css',
+        getText: () => 'a { color: red; }'
+      };
+
+      connectionMock.workspace.getWorkspaceFolders.resolves([
+        { uri: 'file:///workspace' }
+      ]);
+
+      server.resolveStylelintOptions = sinon.stub().resolves({});
+
+      const {options} = await server.buildStylelintOptions(document);
+
+      assert.equal(options.configFile, '/absolute/path/.stylelintrc.json');
+      assert.isUndefined(options.config);
+    });
+
+    it('should resolve relative configFile from workspace root', async () => {
+      const server = new StylelintServer(connectionMock, documentsMock);
+      server.configFile = '.stylelintrc.json';
+
+      const document = {
+        uri: 'file:///workspace/test.css',
+        getText: () => 'a { color: red; }'
+      };
+
+      connectionMock.workspace.getWorkspaceFolders.resolves([
+        { uri: 'file:///workspace' }
+      ]);
+
+      server.resolveStylelintOptions = sinon.stub().resolves({});
+
+      const {options} = await server.buildStylelintOptions(document);
+
+      assert.include(options.configFile, '.stylelintrc.json');
+      // Should be resolved to absolute path
+      assert.match(options.configFile, /^[/\\]/);
+    });
+
+    it('should prefer configFile over inline config', async () => {
+      const server = new StylelintServer(connectionMock, documentsMock);
+      server.configFile = '/path/.stylelintrc.json';
+      server.config = { rules: { 'color-named': 'never' } };
+
+      const document = {
+        uri: 'file:///workspace/test.css',
+        getText: () => 'a { color: red; }'
+      };
+
+      connectionMock.workspace.getWorkspaceFolders.resolves([
+        { uri: 'file:///workspace' }
+      ]);
+
+      server.resolveStylelintOptions = sinon.stub().resolves({});
+
+      const {options} = await server.buildStylelintOptions(document);
+
+      assert.equal(options.configFile, '/path/.stylelintrc.json');
+      assert.isUndefined(options.config);
+    });
+
+    it('should use user-specified ignorePath over auto-discovered', async () => {
+      const server = new StylelintServer(connectionMock, documentsMock);
+      server.ignorePath = '/custom/.stylelintignore';
+
+      const document = {
+        uri: 'file:///workspace/test.css',
+        getText: () => 'a { color: red; }'
+      };
+
+      connectionMock.workspace.getWorkspaceFolders.resolves([
+        { uri: 'file:///workspace' }
+      ]);
+
+      server.resolveStylelintOptions = sinon.stub().resolves({
+        ignorePath: '/workspace/.stylelintignore'
+      });
+
+      const {options} = await server.buildStylelintOptions(document);
+
+      assert.equal(options.ignorePath, '/custom/.stylelintignore');
+    });
+
+    it('should resolve relative ignorePath from workspace root', async () => {
+      const server = new StylelintServer(connectionMock, documentsMock);
+      server.ignorePath = '.custom-ignore';
+
+      const document = {
+        uri: 'file:///workspace/test.css',
+        getText: () => 'a { color: red; }'
+      };
+
+      connectionMock.workspace.getWorkspaceFolders.resolves([
+        { uri: 'file:///workspace' }
+      ]);
+
+      server.resolveStylelintOptions = sinon.stub().resolves({});
+
+      const {options} = await server.buildStylelintOptions(document);
+
+      assert.include(options.ignorePath, '.custom-ignore');
+      assert.match(options.ignorePath, /^[/\\]/);
+    });
   });
 
   describe('validate', () => {
+    it('should skip node_modules files when ignoreNodeModules is true', async () => {
+      const server = new StylelintServer(connectionMock, documentsMock);
+      server.ignoreNodeModules = true;
+
+      const document = {
+        uri: 'file:///project/node_modules/pkg/style.css',
+        getText: () => 'a { color: red; }'
+      };
+
+      await server.validate(document);
+
+      // Should clear diagnostics and not call stylelintVSCode
+      assert.isTrue(server.diagnosticsBatcher.add.calledWith(document.uri, []));
+      assert.isFalse(stylelintVSCodeStub.called);
+    });
+
+    it('should not skip node_modules files when ignoreNodeModules is false', async () => {
+      const server = new StylelintServer(connectionMock, documentsMock);
+      server.ignoreNodeModules = false;
+
+      const document = {
+        uri: 'file:///project/node_modules/pkg/style.css',
+        getText: () => 'a { color: red; }'
+      };
+
+      server.resolveStylelintOptions = sinon.stub().resolves({});
+      connectionMock.workspace.getWorkspaceFolders.resolves([]);
+
+      await server.validate(document);
+
+      assert.isTrue(stylelintVSCodeStub.called);
+    });
+
+    it('should apply rule customizations to diagnostics', async () => {
+      const server = new StylelintServer(connectionMock, documentsMock);
+      server.ruleCustomizations = [
+        { rule: 'color-named', severity: 'warning' }
+      ];
+
+      const document = {
+        uri: 'file:///workspace/test.css',
+        getText: () => 'a { color: red; }'
+      };
+
+      server.resolveStylelintOptions = sinon.stub().resolves({});
+      connectionMock.workspace.getWorkspaceFolders.resolves([]);
+
+      stylelintVSCodeStub.resolves({
+        diagnostics: [{ code: 'color-named', severity: 1, message: 'test' }],
+        ruleMetadata: {}
+      });
+
+      await server.validate(document);
+
+      // The batcher should receive the customized diagnostics
+      const addCall = server.diagnosticsBatcher.add.lastCall;
+
+      assert.equal(addCall.args[1][0].severity, 2); // Warning
+    });
+
     it('should validate document with absolute path', async () => {
       const server = new StylelintServer(connectionMock, documentsMock);
       const document = {
@@ -1467,6 +1729,17 @@ describe('Server', () => {
   });
 
   describe('executeAutofix', () => {
+    it('should skip node_modules files when ignoreNodeModules is true', async () => {
+      const server = new StylelintServer(connectionMock, documentsMock);
+      server.ignoreNodeModules = true;
+
+      await server.executeAutofix('file:///project/node_modules/pkg/style.css');
+
+      // Should not even try to get the document
+      assert.isFalse(documentsMock.get.called);
+      assert.isFalse(stylelintVSCodeStub.called);
+    });
+
     it('should handle missing document', async () => {
       const server = new StylelintServer(connectionMock, documentsMock);
 
@@ -1482,19 +1755,19 @@ describe('Server', () => {
       parseUriStub = sinon.stub(require('vscode-uri').URI, 'parse');
       parseUriStub.returns({ fsPath: '' });
 
-      const serverModule = proxyquire('../../src/server', {
+      const serverModule = proxyquire('../../src/server/stylelint-server', {
         './stylelint-vscode': stylelintVSCodeStub,
         'find-pkg-dir': findPkgDirStub,
         'fs': {
           existsSync: sinon.stub().returns(true),
           promises: fsPromisesStub
         },
-        './utils': utilsStub,
-        './lru-cache': LRUCacheStub,
+        '../shared/utils': utilsStub,
+        '../shared/lru-cache': LRUCacheStub,
         './document-diagnostics-manager': DocumentDiagnosticsManagerStub,
         './diagnostics-batcher': DiagnosticsBatcherStub,
         'vscode-uri': { URI: { parse: parseUriStub } },
-        './constants': {
+        '../shared/constants': {
           STYLELINT_ERROR_CODE_CONFIG: 78,
           DIAGNOSTIC_OVERLAP_LINE_THRESHOLD: 1,
           DIAGNOSTIC_OVERLAP_CHAR_THRESHOLD: 2,
@@ -1506,7 +1779,7 @@ describe('Server', () => {
         }
       });
 
-      const server = new serverModule.StylelintServer(connectionMock, documentsMock);
+      const server = new serverModule(connectionMock, documentsMock);
 
       const document = {
         uri: 'untitled:Untitled-1',
@@ -1855,6 +2128,47 @@ describe('Server', () => {
     });
   });
 
+  describe('clearAllDiagnostics', () => {
+    it('should clear diagnostics for all open documents', () => {
+      const server = new StylelintServer(connectionMock, documentsMock);
+
+      documentsMock.all.returns([
+        { uri: 'file:///test1.css' },
+        { uri: 'file:///test2.css' }
+      ]);
+
+      server.clearAllDiagnostics();
+
+      assert.isTrue(connectionMock.sendDiagnostics.calledWith({
+        uri: 'file:///test1.css',
+        diagnostics: []
+      }));
+      assert.isTrue(connectionMock.sendDiagnostics.calledWith({
+        uri: 'file:///test2.css',
+        diagnostics: []
+      }));
+      assert.isTrue(server.documentDiagnostics.set.calledWith(
+        'file:///test1.css',
+        { diagnostics: [], ruleMetadata: {} }
+      ));
+      assert.isTrue(server.documentDiagnostics.set.calledWith(
+        'file:///test2.css',
+        { diagnostics: [], ruleMetadata: {} }
+      ));
+    });
+
+    it('should handle no open documents', () => {
+      const server = new StylelintServer(connectionMock, documentsMock);
+
+      documentsMock.all.returns([]);
+
+      // Should not throw
+      server.clearAllDiagnostics();
+
+      assert.isFalse(connectionMock.sendDiagnostics.called);
+    });
+  });
+
   describe('dispose', () => {
     it('should clear all debounce timers', () => {
       const server = new StylelintServer(connectionMock, documentsMock);
@@ -1894,10 +2208,12 @@ describe('Server', () => {
 
       server.workspaceCache = [{ uri: 'file:///workspace' }];
       server.workspaceCacheTime = Date.now();
+      server.resolutionCache.set('test-key', { path: '/test' });
 
       server.dispose();
 
       assert.isTrue(server.versionCache.clear.called);
+      assert.equal(server.resolutionCache.size, 0);
       assert.isNull(server.workspaceCache);
       assert.equal(server.workspaceCacheTime, 0);
     });
@@ -1932,6 +2248,488 @@ describe('Server', () => {
     });
   });
 
+  describe('applyRuleCustomizations', () => {
+    it('should return diagnostics unchanged when no customizations', () => {
+      const server = new StylelintServer(connectionMock, documentsMock);
+      server.ruleCustomizations = [];
+
+      const diagnostics = [
+        { code: 'color-named', severity: 1, message: 'test' }
+      ];
+
+      const result = server.applyRuleCustomizations(diagnostics);
+
+      assert.deepEqual(result, diagnostics);
+    });
+
+    it('should change severity based on customizations', () => {
+      const server = new StylelintServer(connectionMock, documentsMock);
+      server.ruleCustomizations = [
+        { rule: 'color-named', severity: 'warning' }
+      ];
+
+      const diagnostics = [
+        { code: 'color-named', severity: 1, message: 'test' }
+      ];
+
+      const result = server.applyRuleCustomizations(diagnostics);
+
+      assert.equal(result[0].severity, 2); // Warning
+    });
+
+    it('should filter out diagnostics with severity off', () => {
+      const server = new StylelintServer(connectionMock, documentsMock);
+      server.ruleCustomizations = [
+        { rule: 'color-named', severity: 'off' }
+      ];
+
+      const diagnostics = [
+        { code: 'color-named', severity: 1, message: 'test' },
+        { code: 'other-rule', severity: 1, message: 'keep' }
+      ];
+
+      const result = server.applyRuleCustomizations(diagnostics);
+
+      assert.equal(result.length, 1);
+      assert.equal(result[0].code, 'other-rule');
+    });
+
+    it('should support information and hint severities', () => {
+      const server = new StylelintServer(connectionMock, documentsMock);
+      server.ruleCustomizations = [
+        { rule: 'rule-a', severity: 'information' },
+        { rule: 'rule-b', severity: 'hint' }
+      ];
+
+      const diagnostics = [
+        { code: 'rule-a', severity: 1, message: 'a' },
+        { code: 'rule-b', severity: 1, message: 'b' }
+      ];
+
+      const result = server.applyRuleCustomizations(diagnostics);
+
+      assert.equal(result[0].severity, 3); // Information
+      assert.equal(result[1].severity, 4); // Hint
+    });
+
+    it('should not modify diagnostics for rules not in customizations', () => {
+      const server = new StylelintServer(connectionMock, documentsMock);
+      server.ruleCustomizations = [
+        { rule: 'color-named', severity: 'warning' }
+      ];
+
+      const diagnostics = [
+        { code: 'other-rule', severity: 1, message: 'test' }
+      ];
+
+      const result = server.applyRuleCustomizations(diagnostics);
+
+      assert.equal(result[0].severity, 1); // Unchanged
+    });
+
+    it('should return diagnostics unchanged when customizations have no valid entries', () => {
+      const server = new StylelintServer(connectionMock, documentsMock);
+      server.ruleCustomizations = [
+        { rule: '', severity: 'warning' },
+        { rule: null, severity: 'error' },
+        { rule: 'color-named', severity: null },
+        { rule: '', severity: '' }
+      ];
+
+      const diagnostics = [
+        { code: 'color-named', severity: 1, message: 'test' }
+      ];
+
+      const result = server.applyRuleCustomizations(diagnostics);
+
+      // customMap.size === 0, so returns diagnostics unchanged
+      assert.deepEqual(result, diagnostics);
+    });
+  });
+
+  describe('lintWorkspace', () => {
+    it('should return filesScanned 0 when no workspace folders', async () => {
+      const server = new StylelintServer(connectionMock, documentsMock);
+      connectionMock.workspace.getWorkspaceFolders.resolves(null);
+
+      const result = await server.lintWorkspace();
+
+      assert.deepEqual(result, { filesScanned: 0 });
+    });
+
+    it('should return filesScanned 0 when workspace folders is empty', async () => {
+      const server = new StylelintServer(connectionMock, documentsMock);
+      connectionMock.workspace.getWorkspaceFolders.resolves([]);
+
+      const result = await server.lintWorkspace();
+
+      assert.deepEqual(result, { filesScanned: 0 });
+    });
+
+    it('should walk directory and lint matching files', async () => {
+      const server = new StylelintServer(connectionMock, documentsMock);
+      server.resolveStylelintOptions = sinon.stub().resolves({});
+
+      connectionMock.workspace.getWorkspaceFolders.resolves([
+        { uri: 'file:///workspace' }
+      ]);
+
+      // Mock readdir to return a CSS file
+      fsPromisesStub.readdir = sinon.stub();
+      fsPromisesStub.readdir.withArgs('/workspace', sinon.match.any).resolves([
+        { name: 'style.css', isDirectory: () => false, isFile: () => true }
+      ]);
+
+      fsPromisesStub.readFile.withArgs('/workspace/style.css', 'utf8').resolves('a { color: red; }');
+
+      stylelintVSCodeStub.resolves({
+        diagnostics: [{ message: 'test', code: 'color-named' }],
+        ruleMetadata: {}
+      });
+
+      const result = await server.lintWorkspace();
+
+      assert.equal(result.filesScanned, 1);
+      assert.equal(result.totalFiles, 1);
+      assert.isTrue(connectionMock.sendDiagnostics.called);
+      assert.isTrue(connectionMock.sendNotification.called);
+    });
+
+    it('should skip ignored directories (node_modules, .git, dist, build, coverage, .next, .nuxt)', async () => {
+      const server = new StylelintServer(connectionMock, documentsMock);
+      server.resolveStylelintOptions = sinon.stub().resolves({});
+
+      connectionMock.workspace.getWorkspaceFolders.resolves([
+        { uri: 'file:///workspace' }
+      ]);
+
+      fsPromisesStub.readdir = sinon.stub();
+      fsPromisesStub.readdir.withArgs('/workspace', sinon.match.any).resolves([
+        { name: 'node_modules', isDirectory: () => true, isFile: () => false },
+        { name: '.git', isDirectory: () => true, isFile: () => false },
+        { name: 'dist', isDirectory: () => true, isFile: () => false },
+        { name: 'build', isDirectory: () => true, isFile: () => false },
+        { name: 'coverage', isDirectory: () => true, isFile: () => false },
+        { name: '.next', isDirectory: () => true, isFile: () => false },
+        { name: '.nuxt', isDirectory: () => true, isFile: () => false },
+        { name: 'style.css', isDirectory: () => false, isFile: () => true }
+      ]);
+
+      fsPromisesStub.readFile.withArgs('/workspace/style.css', 'utf8').resolves('a {}');
+
+      stylelintVSCodeStub.resolves({ diagnostics: [], ruleMetadata: {} });
+
+      const result = await server.lintWorkspace();
+
+      // Only the CSS file should be scanned, not the directories
+      assert.equal(result.totalFiles, 1);
+      // readdir should only be called once (root), not for ignored dirs
+      assert.equal(fsPromisesStub.readdir.callCount, 1);
+    });
+
+    it('should recurse into non-ignored subdirectories', async () => {
+      const server = new StylelintServer(connectionMock, documentsMock);
+      server.resolveStylelintOptions = sinon.stub().resolves({});
+
+      connectionMock.workspace.getWorkspaceFolders.resolves([
+        { uri: 'file:///workspace' }
+      ]);
+
+      fsPromisesStub.readdir = sinon.stub();
+      fsPromisesStub.readdir.withArgs('/workspace', sinon.match.any).resolves([
+        { name: 'src', isDirectory: () => true, isFile: () => false }
+      ]);
+      fsPromisesStub.readdir.withArgs('/workspace/src', sinon.match.any).resolves([
+        { name: 'app.css', isDirectory: () => false, isFile: () => true }
+      ]);
+
+      fsPromisesStub.readFile.withArgs('/workspace/src/app.css', 'utf8').resolves('a {}');
+
+      stylelintVSCodeStub.resolves({ diagnostics: [], ruleMetadata: {} });
+
+      const result = await server.lintWorkspace();
+
+      assert.equal(result.totalFiles, 1);
+      assert.equal(fsPromisesStub.readdir.callCount, 2);
+    });
+
+    it('should handle readdir errors gracefully', async () => {
+      const server = new StylelintServer(connectionMock, documentsMock);
+      server.resolveStylelintOptions = sinon.stub().resolves({});
+
+      connectionMock.workspace.getWorkspaceFolders.resolves([
+        { uri: 'file:///workspace' }
+      ]);
+
+      fsPromisesStub.readdir = sinon.stub();
+      fsPromisesStub.readdir.withArgs('/workspace', sinon.match.any).rejects(new Error('EACCES'));
+
+      const result = await server.lintWorkspace();
+
+      assert.equal(result.filesScanned, 0);
+      assert.equal(result.totalFiles, 0);
+    });
+
+    it('should skip files exceeding MAX_FILE_SIZE', async () => {
+      const server = new StylelintServer(connectionMock, documentsMock);
+      server.resolveStylelintOptions = sinon.stub().resolves({});
+
+      connectionMock.workspace.getWorkspaceFolders.resolves([
+        { uri: 'file:///workspace' }
+      ]);
+
+      fsPromisesStub.readdir = sinon.stub();
+      fsPromisesStub.readdir.withArgs('/workspace', sinon.match.any).resolves([
+        { name: 'big.css', isDirectory: () => false, isFile: () => true }
+      ]);
+
+      // Create content larger than MAX_FILE_SIZE (5MB)
+      const bigContent = 'a'.repeat(6 * 1024 * 1024);
+      fsPromisesStub.readFile.withArgs('/workspace/big.css', 'utf8').resolves(bigContent);
+
+      const result = await server.lintWorkspace();
+
+      assert.equal(result.filesScanned, 0);
+      assert.equal(result.totalFiles, 1);
+      assert.isFalse(stylelintVSCodeStub.called);
+    });
+
+    it('should skip files that fail to lint', async () => {
+      const server = new StylelintServer(connectionMock, documentsMock);
+      server.resolveStylelintOptions = sinon.stub().resolves({});
+
+      connectionMock.workspace.getWorkspaceFolders.resolves([
+        { uri: 'file:///workspace' }
+      ]);
+
+      fsPromisesStub.readdir = sinon.stub();
+      fsPromisesStub.readdir.withArgs('/workspace', sinon.match.any).resolves([
+        { name: 'bad.css', isDirectory: () => false, isFile: () => true },
+        { name: 'good.css', isDirectory: () => false, isFile: () => true }
+      ]);
+
+      fsPromisesStub.readFile.withArgs('/workspace/bad.css', 'utf8').resolves('bad {}');
+      fsPromisesStub.readFile.withArgs('/workspace/good.css', 'utf8').resolves('good {}');
+
+      stylelintVSCodeStub.onFirstCall().rejects(new Error('Lint failed'));
+      stylelintVSCodeStub.onSecondCall().resolves({ diagnostics: [], ruleMetadata: {} });
+
+      const result = await server.lintWorkspace();
+
+      // Only good.css should be counted as scanned
+      assert.equal(result.filesScanned, 1);
+      assert.equal(result.totalFiles, 2);
+    });
+
+    it('should skip non-matching file extensions', async () => {
+      const server = new StylelintServer(connectionMock, documentsMock);
+      server.resolveStylelintOptions = sinon.stub().resolves({});
+
+      connectionMock.workspace.getWorkspaceFolders.resolves([
+        { uri: 'file:///workspace' }
+      ]);
+
+      fsPromisesStub.readdir = sinon.stub();
+      fsPromisesStub.readdir.withArgs('/workspace', sinon.match.any).resolves([
+        { name: 'script.js', isDirectory: () => false, isFile: () => true },
+        { name: 'style.css', isDirectory: () => false, isFile: () => true }
+      ]);
+
+      fsPromisesStub.readFile.withArgs('/workspace/style.css', 'utf8').resolves('a {}');
+
+      stylelintVSCodeStub.resolves({ diagnostics: [], ruleMetadata: {} });
+
+      const result = await server.lintWorkspace();
+
+      // Only .css should be matched
+      assert.equal(result.totalFiles, 1);
+    });
+
+    it('should use custom extensions when provided', async () => {
+      const server = new StylelintServer(connectionMock, documentsMock);
+      server.resolveStylelintOptions = sinon.stub().resolves({});
+
+      connectionMock.workspace.getWorkspaceFolders.resolves([
+        { uri: 'file:///workspace' }
+      ]);
+
+      fsPromisesStub.readdir = sinon.stub();
+      fsPromisesStub.readdir.withArgs('/workspace', sinon.match.any).resolves([
+        { name: 'style.css', isDirectory: () => false, isFile: () => true },
+        { name: 'style.scss', isDirectory: () => false, isFile: () => true }
+      ]);
+
+      fsPromisesStub.readFile.resolves('a {}');
+
+      stylelintVSCodeStub.resolves({ diagnostics: [], ruleMetadata: {} });
+
+      const result = await server.lintWorkspace({ extensions: ['.scss'] });
+
+      // Only .scss should be matched
+      assert.equal(result.totalFiles, 1);
+    });
+
+    it('should apply rule customizations to workspace lint results', async () => {
+      const server = new StylelintServer(connectionMock, documentsMock);
+      server.ruleCustomizations = [
+        { rule: 'color-named', severity: 'off' }
+      ];
+      server.resolveStylelintOptions = sinon.stub().resolves({});
+
+      connectionMock.workspace.getWorkspaceFolders.resolves([
+        { uri: 'file:///workspace' }
+      ]);
+
+      fsPromisesStub.readdir = sinon.stub();
+      fsPromisesStub.readdir.withArgs('/workspace', sinon.match.any).resolves([
+        { name: 'style.css', isDirectory: () => false, isFile: () => true }
+      ]);
+
+      fsPromisesStub.readFile.withArgs('/workspace/style.css', 'utf8').resolves('a { color: red; }');
+
+      stylelintVSCodeStub.resolves({
+        diagnostics: [{ code: 'color-named', severity: 1, message: 'test' }],
+        ruleMetadata: {}
+      });
+
+      await server.lintWorkspace();
+
+      // The 'off' customization should filter out the diagnostic
+      const sendCall = connectionMock.sendDiagnostics.firstCall;
+      assert.deepEqual(sendCall.args[0].diagnostics, []);
+    });
+
+    it('should send progress notifications', async () => {
+      const server = new StylelintServer(connectionMock, documentsMock);
+      server.resolveStylelintOptions = sinon.stub().resolves({});
+
+      connectionMock.workspace.getWorkspaceFolders.resolves([
+        { uri: 'file:///workspace' }
+      ]);
+
+      fsPromisesStub.readdir = sinon.stub();
+      fsPromisesStub.readdir.withArgs('/workspace', sinon.match.any).resolves([
+        { name: 'a.css', isDirectory: () => false, isFile: () => true },
+        { name: 'b.css', isDirectory: () => false, isFile: () => true }
+      ]);
+
+      fsPromisesStub.readFile.resolves('a {}');
+      stylelintVSCodeStub.resolves({ diagnostics: [], ruleMetadata: {} });
+
+      await server.lintWorkspace();
+
+      assert.isTrue(connectionMock.sendNotification.calledWith(
+        'stylelint/lintProgress',
+        sinon.match({ total: 2 })
+      ));
+    });
+
+    it('should handle localNotFound by deleting path', async () => {
+      const server = new StylelintServer(connectionMock, documentsMock);
+      server.useLocal = true;
+
+      // Mock buildStylelintOptions to return localNotFound
+      server.buildStylelintOptions = sinon.stub().resolves({
+        options: { path: '/some/path' },
+        localNotFound: true
+      });
+
+      connectionMock.workspace.getWorkspaceFolders.resolves([
+        { uri: 'file:///workspace' }
+      ]);
+
+      fsPromisesStub.readdir = sinon.stub();
+      fsPromisesStub.readdir.withArgs('/workspace', sinon.match.any).resolves([
+        { name: 'style.css', isDirectory: () => false, isFile: () => true }
+      ]);
+
+      fsPromisesStub.readFile.withArgs('/workspace/style.css', 'utf8').resolves('a {}');
+
+      stylelintVSCodeStub.resolves({ diagnostics: [], ruleMetadata: {} });
+
+      await server.lintWorkspace();
+
+      // path should have been deleted before calling stylelintVSCode
+      const callOptions = stylelintVSCodeStub.firstCall.args[1];
+      assert.isUndefined(callOptions.path);
+    });
+
+    it('should use css as default languageId for unknown extensions', async () => {
+      const server = new StylelintServer(connectionMock, documentsMock);
+      server.resolveStylelintOptions = sinon.stub().resolves({});
+
+      connectionMock.workspace.getWorkspaceFolders.resolves([
+        { uri: 'file:///workspace' }
+      ]);
+
+      fsPromisesStub.readdir = sinon.stub();
+      fsPromisesStub.readdir.withArgs('/workspace', sinon.match.any).resolves([
+        { name: 'style.xyz', isDirectory: () => false, isFile: () => true }
+      ]);
+
+      fsPromisesStub.readFile.resolves('a {}');
+      stylelintVSCodeStub.resolves({ diagnostics: [], ruleMetadata: {} });
+
+      await server.lintWorkspace({ extensions: ['.xyz'] });
+
+      const doc = stylelintVSCodeStub.firstCall.args[0];
+      assert.equal(doc.languageId, 'css');
+    });
+
+    it('should skip entries that are neither files nor directories', async () => {
+      const server = new StylelintServer(connectionMock, documentsMock);
+      server.resolveStylelintOptions = sinon.stub().resolves({});
+
+      connectionMock.workspace.getWorkspaceFolders.resolves([
+        { uri: 'file:///workspace' }
+      ]);
+
+      fsPromisesStub.readdir = sinon.stub();
+      fsPromisesStub.readdir.withArgs('/workspace', sinon.match.any).resolves([
+        { name: 'symlink.css', isDirectory: () => false, isFile: () => false },
+        { name: 'real.css', isDirectory: () => false, isFile: () => true }
+      ]);
+
+      fsPromisesStub.readFile.resolves('a {}');
+      stylelintVSCodeStub.resolves({ diagnostics: [], ruleMetadata: {} });
+
+      const result = await server.lintWorkspace();
+
+      // Only real.css should be found
+      assert.equal(result.totalFiles, 1);
+    });
+
+    it('should map file extensions to correct language IDs', async () => {
+      const server = new StylelintServer(connectionMock, documentsMock);
+      server.resolveStylelintOptions = sinon.stub().resolves({});
+
+      connectionMock.workspace.getWorkspaceFolders.resolves([
+        { uri: 'file:///workspace' }
+      ]);
+
+      fsPromisesStub.readdir = sinon.stub();
+      fsPromisesStub.readdir.withArgs('/workspace', sinon.match.any).resolves([
+        { name: 'a.scss', isDirectory: () => false, isFile: () => true },
+        { name: 'b.vue', isDirectory: () => false, isFile: () => true },
+        { name: 'c.md', isDirectory: () => false, isFile: () => true }
+      ]);
+
+      fsPromisesStub.readFile.resolves('content');
+      stylelintVSCodeStub.resolves({ diagnostics: [], ruleMetadata: {} });
+
+      await server.lintWorkspace();
+
+      assert.equal(stylelintVSCodeStub.callCount, 3);
+      // Check language IDs passed to TextDocument.create via the document arg
+      const doc1 = stylelintVSCodeStub.getCall(0).args[0];
+      const doc2 = stylelintVSCodeStub.getCall(1).args[0];
+      const doc3 = stylelintVSCodeStub.getCall(2).args[0];
+      assert.equal(doc1.languageId, 'scss');
+      assert.equal(doc2.languageId, 'vue');
+      assert.equal(doc3.languageId, 'markdown');
+    });
+  });
+
   describe('startServer', () => {
     let originalRequireMain;
     let TextDocumentsMock;
@@ -1953,6 +2751,7 @@ describe('Server', () => {
         this.listen = sinon.stub();
         this.onDidChangeContent = sinon.stub().callsFake((h) => { handlers.onDidChangeContent = h; });
         this.onDidClose = sinon.stub().callsFake((h) => { handlers.onDidClose = h; });
+        this.onDidSave = sinon.stub().callsFake((h) => { handlers.onDidSave = h; });
         this.onWillSaveWaitUntil = sinon.stub().callsFake((h) => { handlers.onWillSaveWaitUntil = h; });
         this.all = sinon.stub().returns([]);
         this.get = sinon.stub();
@@ -1973,7 +2772,7 @@ describe('Server', () => {
         sendNotification: sinon.stub(),
         sendRequest: sinon.stub(),
         onCodeAction: sinon.stub().callsFake((h) => { handlers.onCodeAction = h; }),
-        onRequest: sinon.stub().callsFake((method, h) => { handlers.onRequest = { method, handler: h }; }),
+        onRequest: sinon.stub().callsFake((method, h) => { handlers['onRequest:' + method] = h; }),
         onInitialize: sinon.stub().callsFake((h) => { handlers.onInitialize = h; }),
         onDidChangeConfiguration: sinon.stub().callsFake((h) => { handlers.onDidChangeConfiguration = h; }),
         onDidChangeWatchedFiles: sinon.stub().callsFake((h) => { handlers.onDidChangeWatchedFiles = h; }),
@@ -1985,25 +2784,19 @@ describe('Server', () => {
 
       moduleLoadStub = null;
 
-      // Create the server module with all mocks
-      serverModule = proxyquire('../../src/server', {
+      // First, create the mocked StylelintServer class
+      const MockedStylelintServer = proxyquire('../../src/server/stylelint-server', {
         './stylelint-vscode': stylelintVSCodeStub,
         'find-pkg-dir': findPkgDirStub,
         'fs': {
           existsSync: sinon.stub().returns(true),
           promises: fsPromisesStub
         },
-        './utils': utilsStub,
-        './lru-cache': LRUCacheStub,
+        '../shared/utils': utilsStub,
+        '../shared/lru-cache': LRUCacheStub,
         './document-diagnostics-manager': DocumentDiagnosticsManagerStub,
         './diagnostics-batcher': DiagnosticsBatcherStub,
-        'vscode-languageserver': {
-          createConnection: createConnectionStub,
-          ProposedFeatures: { all: {} },
-          TextDocuments: TextDocumentsMock,
-          CodeActionKind: { QuickFix: 'quickfix' }
-        },
-        './constants': {
+        '../shared/constants': {
           STYLELINT_ERROR_CODE_CONFIG: 78,
           DIAGNOSTIC_OVERLAP_LINE_THRESHOLD: 1,
           DIAGNOSTIC_OVERLAP_CHAR_THRESHOLD: 2,
@@ -2011,7 +2804,40 @@ describe('Server', () => {
           WORKSPACE_CACHE_TTL: 1000,
           VALIDATION_DEBOUNCE_MS: 150,
           MAX_CONCURRENT_VALIDATIONS: 5,
-          MAX_VERSION_CACHE_SIZE: 50
+          MAX_VERSION_CACHE_SIZE: 50,
+          MAX_FILE_SIZE: 1024 * 1024 * 5
+        }
+      });
+
+      // Then create the server module with the mocked class
+      serverModule = proxyquire('../../src/server/index', {
+        './stylelint-server': MockedStylelintServer,
+        'vscode-languageserver': {
+          createConnection: createConnectionStub,
+          ProposedFeatures: { all: {} },
+          TextDocuments: TextDocumentsMock,
+          TextDocument: {
+            create: (uri, languageId, version, content) => ({
+              uri,
+              languageId,
+              version,
+              getText: (range) => {
+                if (!range) {
+                  return content;
+                }
+
+                const lines = content.split('\n');
+                const startLine = range.start.line;
+
+                if (startLine >= lines.length) {
+                  return '';
+                }
+
+                return lines[startLine];
+              }
+            })
+          },
+          CodeActionKind: { QuickFix: 'quickfix' }
         }
       });
     });
@@ -2044,6 +2870,16 @@ describe('Server', () => {
       assert.isTrue(capabilities.capabilities.textDocumentSync.willSaveWaitUntil);
       assert.deepEqual(capabilities.capabilities.textDocumentSync.save, { includeText: false });
       assert.isTrue(capabilities.capabilities.codeActionProvider);
+    });
+
+    it('should not call validateAll on initialize when runMode is not onType', () => {
+      const server = serverModule.startServer();
+      server.runMode = 'onSave';
+      const validateAllStub = sinon.stub(server, 'validateAll').resolves();
+
+      handlers.onInitialize();
+
+      assert.isFalse(validateAllStub.called);
     });
 
     it('should register onDidChangeConfiguration handler', () => {
@@ -2093,6 +2929,23 @@ describe('Server', () => {
 
       const document = {
         uri: 'file:///workspace/test.css',
+        getText: () => 'a { color: red; }'
+      };
+
+      const edits = await handlers.onWillSaveWaitUntil({ document });
+
+      assert.isArray(edits);
+      assert.equal(edits.length, 0);
+      assert.isFalse(stylelintVSCodeStub.called);
+    });
+
+    it('should return empty array for node_modules files when ignoreNodeModules is true', async () => {
+      const server = serverModule.startServer();
+      server.autoFixOnSave = true;
+      server.ignoreNodeModules = true;
+
+      const document = {
+        uri: 'file:///project/node_modules/pkg/style.css',
         getText: () => 'a { color: red; }'
       };
 
@@ -2356,7 +3209,7 @@ describe('Server', () => {
         const server = serverModule.startServer();
         const executeAutofixStub = sinon.stub(server, 'executeAutofix').resolves();
 
-        await handlers.onRequest.handler({ uri: 'file:///test.css', diagnostic: { message: 'test' } });
+        await handlers['onRequest:stylelint/executeAutofix']({ uri: 'file:///test.css', diagnostic: { message: 'test' } });
 
         assert.isTrue(executeAutofixStub.calledWith('file:///test.css', { message: 'test' }));
       });
@@ -2364,7 +3217,7 @@ describe('Server', () => {
       it('should show error when uri is invalid (non-string)', async () => {
         serverModule.startServer();
 
-        await handlers.onRequest.handler({ uri: 123 });
+        await handlers['onRequest:stylelint/executeAutofix']({ uri: 123 });
 
         assert.isTrue(connectionStub.window.showErrorMessage.calledWith(
           sinon.match('Cannot execute autofix')
@@ -2374,7 +3227,7 @@ describe('Server', () => {
       it('should show error when params is null', async () => {
         serverModule.startServer();
 
-        await handlers.onRequest.handler(null);
+        await handlers['onRequest:stylelint/executeAutofix'](null);
 
         assert.isTrue(connectionStub.window.showErrorMessage.calledWith(
           sinon.match('Cannot execute autofix')
@@ -2403,6 +3256,19 @@ describe('Server', () => {
         assert.isTrue(server.disableErrorMessage);
       });
 
+      it('should clear resolution cache on config change', () => {
+        const server = serverModule.startServer();
+        server.resolutionCache.set('test-key', { path: '/test' });
+        const clearSpy = sinon.spy(server, 'clearResolutionCache');
+
+        handlers.onDidChangeConfiguration({
+          settings: { stylelint: { useLocal: true } }
+        });
+
+        assert.isTrue(clearSpy.called);
+        assert.equal(server.resolutionCache.size, 0);
+      });
+
       it('should handle null/missing settings', () => {
         const server = serverModule.startServer();
 
@@ -2411,16 +3277,124 @@ describe('Server', () => {
         assert.isUndefined(server.config);
         assert.isUndefined(server.autoFixOnSave);
       });
+
+      it('should validateAll when run mode stays onType', () => {
+        const server = serverModule.startServer();
+        server.runMode = 'onType'; // previous mode
+        const validateAllStub = sinon.stub(server, 'validateAll').resolves();
+        const clearAllDiagnosticsStub = sinon.stub(server, 'clearAllDiagnostics');
+
+        handlers.onDidChangeConfiguration({
+          settings: { stylelint: { run: 'onType' } }
+        });
+
+        assert.isTrue(validateAllStub.called);
+        assert.isFalse(clearAllDiagnosticsStub.called);
+      });
+
+      it('should clear all diagnostics when switching from onType to onSave', () => {
+        const server = serverModule.startServer();
+        server.runMode = 'onType'; // previous mode
+        const validateAllStub = sinon.stub(server, 'validateAll').resolves();
+        const clearAllDiagnosticsStub = sinon.stub(server, 'clearAllDiagnostics');
+
+        handlers.onDidChangeConfiguration({
+          settings: { stylelint: { run: 'onSave' } }
+        });
+
+        assert.isFalse(validateAllStub.called);
+        assert.isTrue(clearAllDiagnosticsStub.called);
+      });
+
+      it('should clearAllDiagnostics when config changes in onSave mode without mode switch', () => {
+        const server = serverModule.startServer();
+        server.runMode = 'onSave'; // previous mode is already onSave
+        const validateAllStub = sinon.stub(server, 'validateAll').resolves();
+        const clearAllDiagnosticsStub = sinon.stub(server, 'clearAllDiagnostics');
+
+        handlers.onDidChangeConfiguration({
+          settings: { stylelint: { run: 'onSave', config: { rules: {} } } }
+        });
+
+        // Config changed but still onSave, clear stale diagnostics; fresh ones on next save
+        assert.isFalse(validateAllStub.called);
+        assert.isTrue(clearAllDiagnosticsStub.called);
+      });
+
+      it('should validateAll when switching from onSave back to onType', () => {
+        const server = serverModule.startServer();
+        server.runMode = 'onSave'; // previous mode
+        const validateAllStub = sinon.stub(server, 'validateAll').resolves();
+        const clearAllDiagnosticsStub = sinon.stub(server, 'clearAllDiagnostics');
+
+        handlers.onDidChangeConfiguration({
+          settings: { stylelint: { run: 'onType' } }
+        });
+
+        assert.isTrue(validateAllStub.called);
+        assert.isFalse(clearAllDiagnosticsStub.called);
+      });
     });
 
     describe('onDidChangeWatchedFiles', () => {
-      it('should call validateAll on watched files change', () => {
+      it('should call validateAll on watched files change in onType mode', () => {
         const server = serverModule.startServer();
+        server.runMode = 'onType';
         const validateAllStub = sinon.stub(server, 'validateAll').resolves();
 
         handlers.onDidChangeWatchedFiles();
 
         assert.isTrue(validateAllStub.called);
+      });
+
+      it('should not call validateAll on watched files change in onSave mode', () => {
+        const server = serverModule.startServer();
+        server.runMode = 'onSave';
+        const validateAllStub = sinon.stub(server, 'validateAll').resolves();
+
+        handlers.onDidChangeWatchedFiles();
+
+        assert.isFalse(validateAllStub.called);
+      });
+
+      it('should clear resolution cache on watched files change', () => {
+        const server = serverModule.startServer();
+        server.resolutionCache.set('test-key', { path: '/test' });
+        const clearSpy = sinon.spy(server, 'clearResolutionCache');
+        sinon.stub(server, 'validateAll').resolves();
+
+        handlers.onDidChangeWatchedFiles();
+
+        assert.isTrue(clearSpy.called);
+        assert.equal(server.resolutionCache.size, 0);
+      });
+    });
+
+    describe('onRequest stylelint/refreshLocalSearch', () => {
+      it('should clear caches and revalidate', async () => {
+        const server = serverModule.startServer();
+        server.resolutionCache.set('test-key', { path: '/test' });
+        const clearSpy = sinon.spy(server, 'clearResolutionCache');
+        const validateAllStub = sinon.stub(server, 'validateAll').resolves();
+
+        await handlers['onRequest:stylelint/refreshLocalSearch']();
+
+        assert.isTrue(clearSpy.called);
+        assert.isTrue(server.versionCache.clear.called);
+        assert.isTrue(validateAllStub.called);
+        assert.equal(server.resolutionCache.size, 0);
+      });
+    });
+
+    describe('onRequest stylelint/lintWorkspace', () => {
+      it('should call lintWorkspace with params', async () => {
+        const server = serverModule.startServer();
+        const lintWorkspaceStub = sinon.stub(server, 'lintWorkspace').resolves({ filesScanned: 0, totalFiles: 0 });
+
+        const params = { extensions: ['.css'] };
+        await handlers['onRequest:stylelint/lintWorkspace'](params);
+
+        assert.isTrue(lintWorkspaceStub.calledWith(params));
       });
     });
 
@@ -2462,6 +3436,286 @@ describe('Server', () => {
           diagnostics: []
         }));
         assert.isTrue(server.documentDiagnostics.delete.calledWith('file:///test.css'));
+      });
+    });
+
+    describe('run mode', () => {
+      it('should not validate on content change when runMode is onSave', () => {
+        const server = serverModule.startServer();
+        server.runMode = 'onSave';
+        const validateDebouncedStub = sinon.stub(server, 'validateDebounced');
+
+        handlers.onDidChangeContent({ document: { uri: 'file:///test.css', getText: () => 'css' } });
+
+        assert.isFalse(validateDebouncedStub.called);
+      });
+
+      it('should validate on save when runMode is onSave', () => {
+        const server = serverModule.startServer();
+        server.runMode = 'onSave';
+        const validateStub = sinon.stub(server, 'validate');
+
+        const document = { uri: 'file:///test.css', getText: () => 'css' };
+        handlers.onDidSave({ document });
+
+        assert.isTrue(validateStub.calledWith(document));
+      });
+
+      it('should not validate on save when runMode is onType', () => {
+        const server = serverModule.startServer();
+        server.runMode = 'onType';
+        const validateStub = sinon.stub(server, 'validate');
+
+        handlers.onDidSave({ document: { uri: 'file:///test.css', getText: () => 'css' } });
+
+        assert.isFalse(validateStub.called);
+      });
+    });
+
+    describe('onRequest stylelint/validateNow', () => {
+      it('should validate specific document when uri provided', async () => {
+        const server = serverModule.startServer();
+        const validateStub = sinon.stub(server, 'validate').resolves();
+        const document = { uri: 'file:///test.css', getText: () => 'css' };
+
+        // Mock documents.get to return the document
+        server.documents.get = sinon.stub().returns(document);
+
+        await handlers['onRequest:stylelint/validateNow']({ uri: 'file:///test.css' });
+
+        assert.isTrue(validateStub.called);
+      });
+
+      it('should validate all when no uri provided', async () => {
+        const server = serverModule.startServer();
+        const validateAllStub = sinon.stub(server, 'validateAll').resolves();
+
+        await handlers['onRequest:stylelint/validateNow']({});
+
+        assert.isTrue(validateAllStub.called);
+      });
+
+      it('should validate all when params is null', async () => {
+        const server = serverModule.startServer();
+        const validateAllStub = sinon.stub(server, 'validateAll').resolves();
+
+        await handlers['onRequest:stylelint/validateNow'](null);
+
+        assert.isTrue(validateAllStub.called);
+      });
+
+      it('should not validate when uri provided but document not found', async () => {
+        const server = serverModule.startServer();
+        const validateStub = sinon.stub(server, 'validate').resolves();
+
+        server.documents.get = sinon.stub().returns(null);
+
+        await handlers['onRequest:stylelint/validateNow']({ uri: 'file:///nonexistent.css' });
+
+        assert.isFalse(validateStub.called);
+      });
+    });
+
+    describe('onDidChangeConfiguration — new settings', () => {
+      it('should read run mode from settings', () => {
+        const server = serverModule.startServer();
+
+        handlers.onDidChangeConfiguration({
+          settings: { stylelint: { run: 'onSave' } }
+        });
+
+        assert.equal(server.runMode, 'onSave');
+      });
+
+      it('should default run mode to onType', () => {
+        const server = serverModule.startServer();
+
+        handlers.onDidChangeConfiguration({
+          settings: { stylelint: {} }
+        });
+
+        assert.equal(server.runMode, 'onType');
+      });
+
+      it('should read configFile from settings', () => {
+        const server = serverModule.startServer();
+
+        handlers.onDidChangeConfiguration({
+          settings: { stylelint: { configFile: '/path/to/.stylelintrc.json' } }
+        });
+
+        assert.equal(server.configFile, '/path/to/.stylelintrc.json');
+      });
+
+      it('should read ignorePath from settings', () => {
+        const server = serverModule.startServer();
+
+        handlers.onDidChangeConfiguration({
+          settings: { stylelint: { ignorePath: '.custom-ignore' } }
+        });
+
+        assert.equal(server.ignorePath, '.custom-ignore');
+      });
+
+      it('should read ignoreNodeModules from settings', () => {
+        const server = serverModule.startServer();
+
+        handlers.onDidChangeConfiguration({
+          settings: { stylelint: { ignoreNodeModules: false } }
+        });
+
+        assert.isFalse(server.ignoreNodeModules);
+      });
+
+      it('should default ignoreNodeModules to true', () => {
+        const server = serverModule.startServer();
+
+        handlers.onDidChangeConfiguration({
+          settings: { stylelint: {} }
+        });
+
+        assert.isTrue(server.ignoreNodeModules);
+      });
+
+      it('should read rules.customizations from settings', () => {
+        const server = serverModule.startServer();
+        const customizations = [{ rule: 'color-no-invalid-hex', severity: 'warning' }];
+
+        handlers.onDidChangeConfiguration({
+          settings: { stylelint: { rules: { customizations } } }
+        });
+
+        assert.deepEqual(server.ruleCustomizations, customizations);
+      });
+
+      it('should default rules.customizations to empty array', () => {
+        const server = serverModule.startServer();
+
+        handlers.onDidChangeConfiguration({
+          settings: { stylelint: {} }
+        });
+
+        assert.deepEqual(server.ruleCustomizations, []);
+      });
+
+      it('should read disableRuleComment location from settings', () => {
+        const server = serverModule.startServer();
+
+        handlers.onDidChangeConfiguration({
+          settings: { stylelint: { codeAction: { disableRuleComment: { location: 'sameLine' } } } }
+        });
+
+        assert.equal(server.disableRuleCommentLocation, 'sameLine');
+      });
+
+      it('should default disableRuleComment location to separateLine', () => {
+        const server = serverModule.startServer();
+
+        handlers.onDidChangeConfiguration({
+          settings: { stylelint: {} }
+        });
+
+        assert.equal(server.disableRuleCommentLocation, 'separateLine');
+      });
+    });
+
+    describe('onCodeAction — disable rule comment', () => {
+      it('should add disable rule action for stylelint diagnostics with rule code', async () => {
+        const server = serverModule.startServer();
+        server.disableRuleCommentLocation = 'separateLine';
+
+        const document = {
+          uri: 'file:///test.css',
+          getText: () => '  color: red;\n  background: blue;'
+        };
+        server.documents.get = sinon.stub().returns(document);
+        server.documentDiagnostics.get = sinon.stub().returns({ ruleMetadata: {} });
+
+        const result = await handlers.onCodeAction({
+          textDocument: { uri: 'file:///test.css' },
+          context: {
+            diagnostics: [{
+              source: 'stylelint',
+              code: 'color-named',
+              message: 'Unexpected named color',
+              range: { start: { line: 0, character: 2 }, end: { line: 0, character: 12 } }
+            }]
+          }
+        });
+
+        const disableAction = result.find(a => a.title.includes('Disable'));
+
+        assert.isDefined(disableAction);
+        assert.include(disableAction.title, 'color-named');
+        assert.isDefined(disableAction.edit);
+        // separateLine: inserts above
+        const textEdit = disableAction.edit.changes['file:///test.css'][0];
+
+        assert.equal(textEdit.range.start.line, 0);
+        assert.include(textEdit.newText, 'stylelint-disable-next-line');
+        assert.include(textEdit.newText, 'color-named');
+      });
+
+      it('should use sameLine comment when configured', async () => {
+        const server = serverModule.startServer();
+        server.disableRuleCommentLocation = 'sameLine';
+
+        const document = {
+          uri: 'file:///test.css',
+          getText: (range) => {
+            if (range) {
+              return '  color: red;';
+            }
+
+            return '  color: red;\n  background: blue;';
+          }
+        };
+        server.documents.get = sinon.stub().returns(document);
+        server.documentDiagnostics.get = sinon.stub().returns({ ruleMetadata: {} });
+
+        const result = await handlers.onCodeAction({
+          textDocument: { uri: 'file:///test.css' },
+          context: {
+            diagnostics: [{
+              source: 'stylelint',
+              code: 'color-named',
+              message: 'Unexpected named color',
+              range: { start: { line: 0, character: 2 }, end: { line: 0, character: 12 } }
+            }]
+          }
+        });
+
+        const disableAction = result.find(a => a.title.includes('Disable'));
+        const textEdit = disableAction.edit.changes['file:///test.css'][0];
+
+        assert.include(textEdit.newText, 'stylelint-disable-line');
+        assert.include(textEdit.newText, 'color-named');
+      });
+
+      it('should not add disable action for diagnostics without rule code', async () => {
+        const server = serverModule.startServer();
+
+        server.documents.get = sinon.stub().returns({
+          uri: 'file:///test.css',
+          getText: () => 'color: red;'
+        });
+        server.documentDiagnostics.get = sinon.stub().returns({ ruleMetadata: {} });
+
+        const result = await handlers.onCodeAction({
+          textDocument: { uri: 'file:///test.css' },
+          context: {
+            diagnostics: [{
+              source: 'stylelint',
+              code: null,
+              message: 'Some error',
+              range: { start: { line: 0, character: 0 }, end: { line: 0, character: 5 } }
+            }]
+          }
+        });
+
+        const disableAction = result.find(a => a.title && a.title.includes('Disable'));
+
+        assert.isUndefined(disableAction);
       });
     });
   });

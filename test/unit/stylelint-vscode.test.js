@@ -30,7 +30,7 @@ describe('stylelintVSCode', () => {
       lint: lintStub
     });
 
-    stylelintVSCode = proxyquire('../../src/stylelint-vscode', {
+    stylelintVSCode = proxyquire('../../src/server/stylelint-vscode', {
       './load-stylelint': loadStylelintStub
     });
   });

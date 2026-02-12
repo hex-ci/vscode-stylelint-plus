@@ -3,22 +3,18 @@
 const fsPromises = require('fs').promises;
 const {
   join,
-  parse,
-  resolve,
   dirname,
   isAbsolute
 } = require('path');
 const {
-  createConnection,
-  ProposedFeatures,
-  TextDocuments,
+  TextDocument,
   CodeActionKind
 } = require('vscode-languageserver');
-const findPkgDir = require('find-pkg-dir');
 const parseUri = require('vscode-uri').URI.parse;
 const stylelintVSCode = require('./stylelint-vscode');
-const { isRangeOverlap, generateTextEdits } = require('./utils');
-const LRUCache = require('./lru-cache');
+const { isRangeOverlap, generateTextEdits, isNodeModulesPath, getWorkspaceForDocument } = require('../shared/utils');
+const resolveStylelintOptions = require('./options-resolver');
+const LRUCache = require('../shared/lru-cache');
 const DocumentDiagnosticsManager = require('./document-diagnostics-manager');
 const DiagnosticsBatcher = require('./diagnostics-batcher');
 const {
@@ -29,8 +25,9 @@ const {
   WORKSPACE_CACHE_TTL,
   VALIDATION_DEBOUNCE_MS,
   MAX_CONCURRENT_VALIDATIONS,
-  MAX_VERSION_CACHE_SIZE
-} = require('./constants');
+  MAX_VERSION_CACHE_SIZE,
+  MAX_FILE_SIZE
+} = require('../shared/constants');
 
 /**
  * Stylelint Language Server
@@ -40,7 +37,7 @@ class StylelintServer {
   /**
    * Create a new StylelintServer instance
    * @param {Object} connection - VSCode language server connection
-   * @param {TextDocuments} documents - Text documents manager
+   * @param {Object} documents - Text documents manager
    */
   constructor(connection, documents) {
     this.connection = connection;
@@ -53,6 +50,12 @@ class StylelintServer {
     this.autoFixOnSave = false;
     this.useLocal = false;
     this.disableErrorMessage = false;
+    this.runMode = 'onType';
+    this.configFile = '';
+    this.ignorePath = '';
+    this.ignoreNodeModules = true;
+    this.ruleCustomizations = [];
+    this.disableRuleCommentLocation = 'separateLine';
 
     // State
     this.detectedStylelintVersion = null;
@@ -67,6 +70,10 @@ class StylelintServer {
     this.versionCache = new LRUCache(MAX_VERSION_CACHE_SIZE);
     this.workspaceCache = null;
     this.workspaceCacheTime = 0;
+
+    // Resolution cache: avoids repeated filesystem traversal for stylelint path + ignorePath
+    // Key: workspace folder URI or '__untitled__'; Value: { path, ignorePath, localNotFound }
+    this.resolutionCache = new Map();
 
     // Validation tokens for cancellation
     this.validationTokens = new Map();
@@ -172,28 +179,24 @@ class StylelintServer {
   }
 
   /**
-   * Get workspace folder for a document
+   * Get workspace folder for a document — delegates to utils
+   * Kept as instance method for test seam compatibility.
    * @param {string} documentUri - Document URI
    * @param {Array} folders - Workspace folders
    * @returns {Object|undefined} Workspace folder or undefined
    */
   getWorkspaceForDocument(documentUri, folders) {
-    if (!folders) {
-      return undefined;
-    }
+    return getWorkspaceForDocument(documentUri, folders);
+  }
 
-    const docUri = parseUri(documentUri);
-    const docUriStr = docUri.toString();
-
-    return folders
-      .filter(folder => {
-        const folderUriStr = parseUri(folder.uri).toString();
-        // Ensure folder URI ends with / for proper prefix matching
-        const folderPrefix = folderUriStr.endsWith('/') ? folderUriStr : folderUriStr + '/';
-
-        return docUriStr === folderUriStr || docUriStr.startsWith(folderPrefix);
-      })
-      .sort((a, b) => b.uri.length - a.uri.length)[0];
+  /**
+   * Check if a URI is inside node_modules — delegates to utils
+   * Kept as instance method for test seam compatibility.
+   * @param {string} uri - Document URI
+   * @returns {boolean} True if path is inside node_modules
+   */
+  isNodeModulesPath(uri) {
+    return isNodeModulesPath(uri);
   }
 
   /**
@@ -249,7 +252,7 @@ class StylelintServer {
     }
     else {
       try {
-        const bundledPkg = require('../package.json');
+        const bundledPkg = require('../../package.json');
         version = bundledPkg.dependencies.stylelint.replace(/[\^~]/, '');
         isLocal = false;
       }
@@ -269,86 +272,17 @@ class StylelintServer {
   }
 
   /**
-   * Resolve stylelint options for a document
+   * Resolve stylelint options for a document — delegates to options-resolver module.
+   * Kept as an instance method to serve as a test seam (50+ unit tests stub this).
    * @param {string} documentUri - Document URI
    * @returns {Promise<Object>} Stylelint options
    */
-  async resolveStylelintOptions(documentUri) {
-    let stopPath = null;
-    const documentPath = parseUri(documentUri).fsPath;
-
-    const folders = await this.getWorkspaceFolders();
-
-    const workspace = this.getWorkspaceForDocument(documentUri, folders);
-
-    if (workspace) {
-      stopPath = parseUri(workspace.uri).fsPath;
-    }
-
-    if (!stopPath) {
-      stopPath = findPkgDir(documentPath) || parse(documentPath).root;
-    }
-
-    const normalizedStopPath = stopPath.replace(/[\/\\]+$/, '') || stopPath;
-    const normalizedDocDir = parse(documentPath).dir.replace(/[\/\\]+$/, '') || parse(documentPath).dir;
-
-    // Look for closest .stylelintignore up to and including stopPath
-    let dir = normalizedDocDir;
-    let ignorePath;
-
-    while (dir) {
-      const candidate = join(dir, '.stylelintignore');
-
-      try {
-        await fsPromises.access(candidate);
-        ignorePath = candidate;
-        break;
-      }
-      catch {
-        // File doesn't exist, continue to parent
-      }
-
-      if (dir === normalizedStopPath) {
-        break;
-      }
-
-      const parentDir = parse(dir).dir;
-
-      if (parentDir === dir) {
-        break;
-      }
-
-      dir = parentDir;
-    }
-
-    const result = {};
-
-    if (ignorePath) {
-      result.ignorePath = ignorePath;
-    }
-
-    if (this.useLocal) {
-      let localDir;
-      let startDir = documentPath;
-
-      while ((localDir = findPkgDir(startDir))) {
-        const localPath = join(localDir, 'node_modules', 'stylelint');
-
-        try {
-          await fsPromises.access(localPath);
-          result.path = localPath;
-          break;
-        }
-        catch {
-          // Path doesn't exist, continue to parent
-        }
-
-        /* istanbul ignore next */
-        startDir = resolve(localDir, '..');
-      }
-    }
-
-    return result;
+  resolveStylelintOptions(documentUri) {
+    return resolveStylelintOptions(documentUri, {
+      getWorkspaceFolders: () => this.getWorkspaceFolders(),
+      getWorkspaceForDocument: (uri, folders) => this.getWorkspaceForDocument(uri, folders),
+      useLocal: this.useLocal
+    });
   }
 
   /**
@@ -364,7 +298,11 @@ class StylelintServer {
   async buildStylelintOptions(document, extraOptions = {}) {
     const options = {...extraOptions};
 
-    if (this.config) {
+    // configFile takes precedence over inline config
+    if (this.configFile) {
+      options.configFile = this.configFile;
+    }
+    else if (this.config) {
       options.config = this.config;
     }
 
@@ -382,9 +320,41 @@ class StylelintServer {
         options.cwd = dirname(documentPath);
       }
 
-      const {ignorePath, path: stylelintPath} = await this.resolveStylelintOptions(document.uri);
+      // Resolve configFile relative path
+      if (options.configFile && !isAbsolute(options.configFile) && options.cwd) {
+        options.configFile = join(options.cwd, options.configFile);
+      }
 
-      if (ignorePath) {
+      // Use workspace URI as cache key; fall back to cwd for files outside any workspace
+      const cacheKey = workspace ? workspace.uri : options.cwd;
+      const cached = this.resolutionCache.get(cacheKey);
+
+      let ignorePath;
+      let stylelintPath;
+
+      if (cached) {
+        ignorePath = cached.ignorePath;
+        stylelintPath = cached.path;
+      }
+      else {
+        const resolved = await this.resolveStylelintOptions(document.uri);
+
+        ignorePath = resolved.ignorePath;
+        stylelintPath = resolved.path;
+
+        this.resolutionCache.set(cacheKey, {
+          ignorePath,
+          path: stylelintPath
+        });
+      }
+
+      // User-specified ignorePath takes precedence over auto-discovered
+      if (this.ignorePath) {
+        options.ignorePath = isAbsolute(this.ignorePath)
+          ? this.ignorePath
+          : join(options.cwd, this.ignorePath);
+      }
+      else if (ignorePath) {
         options.ignorePath = ignorePath;
       }
 
@@ -404,21 +374,85 @@ class StylelintServer {
         options.cwd = parseUri(folders[0].uri).fsPath;
 
         if (this.useLocal) {
-          const localPath = join(options.cwd, 'node_modules', 'stylelint');
+          const cacheKey = '__untitled__';
+          const cached = this.resolutionCache.get(cacheKey);
 
-          try {
-            await fsPromises.access(localPath);
-            options.path = localPath;
+          if (cached) {
+            if (cached.path) {
+              options.path = cached.path;
+            }
+            else {
+              return {options, localNotFound: true};
+            }
           }
-          catch {
-            // Local stylelint not found in workspace, will fallback to bundled
-            return {options, localNotFound: true};
+          else {
+            const localPath = join(options.cwd, 'node_modules', 'stylelint');
+
+            try {
+              await fsPromises.access(localPath);
+              options.path = localPath;
+              this.resolutionCache.set(cacheKey, {path: localPath});
+            }
+            catch {
+              // Local stylelint not found in workspace, will fallback to bundled
+              this.resolutionCache.set(cacheKey, {path: null});
+
+              return {options, localNotFound: true};
+            }
           }
         }
       }
     }
 
     return {options, localNotFound: false};
+  }
+
+  /**
+   * Apply rule severity customizations to diagnostics
+   * @param {Array} diagnostics - Array of LSP Diagnostic objects
+   * @returns {Array} Diagnostics with customized severities (filtered if 'off')
+   */
+  applyRuleCustomizations(diagnostics) {
+    if (!this.ruleCustomizations || this.ruleCustomizations.length === 0) {
+      return diagnostics;
+    }
+
+    // Build a lookup map for quick access
+    const customMap = new Map();
+
+    for (const {rule, severity} of this.ruleCustomizations) {
+      if (rule && severity) {
+        customMap.set(rule, severity);
+      }
+    }
+
+    if (customMap.size === 0) {
+      return diagnostics;
+    }
+
+    // DiagnosticSeverity: Error=1, Warning=2, Information=3, Hint=4
+    const severityMap = {
+      error: 1,
+      warning: 2,
+      information: 3,
+      hint: 4
+    };
+
+    return diagnostics
+      .filter(d => {
+        const custom = customMap.get(d.code);
+
+        return custom !== 'off';
+      })
+      .map(d => {
+        const custom = customMap.get(d.code);
+
+        if (custom && severityMap[custom]) {
+          return {...d, severity: severityMap[custom]};
+        }
+
+        return d;
+      });
   }
 
   /**
@@ -463,6 +497,14 @@ class StylelintServer {
    * @returns {Promise<void>}
    */
   async validate(document) {
+    // Skip node_modules files
+    if (this.ignoreNodeModules && this.isNodeModulesPath(document.uri)) {
+      this.diagnosticsBatcher.add(document.uri, []);
+      this.documentDiagnostics.set(document.uri, {diagnostics: [], ruleMetadata: {}});
+
+      return;
+    }
+
     // Cancel any existing validation for this document
     const existingToken = this.validationTokens.get(document.uri);
     if (existingToken) {
@@ -507,8 +549,11 @@ class StylelintServer {
         return;
       }
 
+      // Apply rule customizations
+      const finalDiagnostics = this.applyRuleCustomizations(diagnostics);
+
       // Use batcher for efficient sending
-      this.diagnosticsBatcher.add(document.uri, diagnostics);
+      this.diagnosticsBatcher.add(document.uri, finalDiagnostics);
       this.documentDiagnostics.set(document.uri, {diagnostics, ruleMetadata});
     }
     catch (err) {
@@ -523,16 +568,12 @@ class StylelintServer {
         (err.reasons && err.reasons.length > 0);
 
       if (isConfigError) {
-        // "No config" is a normal scenario (user may not have a config file) — degrade silently.
-        // "Config broken" needs user notification so they can fix it.
         if (!isNoConfig) {
           this.handleStylelintError(err, 'validation', document.uri);
         }
 
         if (document.languageId === 'css') {
-          // Config is broken/missing but we can still check CSS syntax errors
           try {
-            // Build minimal fallback options: empty rules + no local path (use bundled)
             const {options: fallbackOptions} = await this.buildStylelintOptions(document);
 
             delete fallbackOptions.path;
@@ -550,7 +591,6 @@ class StylelintServer {
           }
         }
         else {
-          // Non-CSS files: clear stale diagnostics (config is broken/missing, old results are unreliable)
           if (!token.cancelled) {
             this.diagnosticsBatcher.add(document.uri, []);
             this.documentDiagnostics.set(document.uri, {diagnostics: [], ruleMetadata: {}});
@@ -574,12 +614,10 @@ class StylelintServer {
    * @returns {Promise<void>}
    */
   async validateAll() {
-    // Clear error deduplication on re-validation (e.g., config file changed)
     this.reportedErrors.clear();
 
     const documents = this.documents.all();
 
-    // Process in batches to limit concurrency
     const batches = [];
     for (let i = 0; i < documents.length; i += MAX_CONCURRENT_VALIDATIONS) {
       batches.push(documents.slice(i, i + MAX_CONCURRENT_VALIDATIONS));
@@ -597,6 +635,10 @@ class StylelintServer {
    * @returns {Promise<void>}
    */
   async executeAutofix(uri, diagnostic = null) {
+    if (this.ignoreNodeModules && this.isNodeModulesPath(uri)) {
+      return;
+    }
+
     const document = this.documents.get(uri);
 
     if (!document) {
@@ -612,7 +654,6 @@ class StylelintServer {
         this.connection.console.log(
           'Local stylelint not found, falling back to bundled version for autofix.'
         );
-        // Remove path so loadStylelint uses the bundled version
         delete options.path;
 
         const versionInfo = await this.getVersionInfo(null);
@@ -642,7 +683,6 @@ class StylelintServer {
         );
 
         if (targetEdits.length === 0) {
-          // No edits found for this specific diagnostic, skip
           return;
         }
 
@@ -682,50 +722,273 @@ class StylelintServer {
   }
 
   /**
-   * Dispose and clean up all resources
+   * Clear the resolution cache, forcing re-lookup of local stylelint and ignorePath
+   * on the next validation. Called on config changes and manual refresh.
    */
-  dispose() {
-    // Clear all debounce timers
-    for (const timeoutId of this.validateDebouncers.values()) {
-      clearTimeout(timeoutId);
-    }
-    this.validateDebouncers.clear();
+  clearResolutionCache() {
+    this.resolutionCache.clear();
+  }
 
-    // Clear validation tokens
-    this.validationTokens.clear();
+  /**
+   * Clear all diagnostics for open documents.
+   * Used when switching to onSave/manual mode so stale diagnostics don't linger.
+   */
+  clearAllDiagnostics() {
+    const documents = this.documents.all();
 
-    // Dispose managers
-    this.documentDiagnostics.dispose();
-    this.diagnosticsBatcher.dispose();
-
-    // Clear caches
-    this.versionCache.clear();
-    this.workspaceCache = null;
-    this.workspaceCacheTime = 0;
-    this.reportedErrors.clear();
-
-    // Remove global error handlers
-    if (this.boundUnhandledRejection) {
-      process.removeListener('unhandledRejection', this.boundUnhandledRejection);
-    }
-    if (this.boundUncaughtException) {
-      process.removeListener('uncaughtException', this.boundUncaughtException);
+    for (const document of documents) {
+      this.connection.sendDiagnostics({
+        uri: document.uri,
+        diagnostics: []
+      });
+      this.documentDiagnostics.set(document.uri, {diagnostics: [], ruleMetadata: {}});
     }
   }
-}
 
-/**
- * Start the language server
- * @returns {StylelintServer} The server instance
- */
-function startServer() {
-  // Create connection and documents
-  const connection = createConnection(ProposedFeatures.all);
-  const documents = new TextDocuments();
-  const server = new StylelintServer(connection, documents);
+  /**
+   * Get auto-fix text edits for a document (used by onWillSaveWaitUntil)
+   * @param {Object} document - Text document
+   * @returns {Promise<Array>} Array of TextEdits, or empty array if no fixes
+   */
+  async getAutoFixEdits(document) {
+    if (!this.autoFixOnSave) {
+      return [];
+    }
 
-  // Code action handler
-  connection.onCodeAction(async (params) => {
+    if (this.ignoreNodeModules && this.isNodeModulesPath(document.uri)) {
+      return [];
+    }
+
+    try {
+      const {options, localNotFound} = await this.buildStylelintOptions(document, {fix: true});
+
+      if (localNotFound) {
+        delete options.path;
+
+        const versionInfo = await this.getVersionInfo(null);
+
+        this.safeNotification('stylelint/versionDetected', {
+          version: versionInfo.version,
+          isLocal: false,
+          isFallback: true
+        });
+      }
+
+      const {fixedCode} = await stylelintVSCode(document, options);
+
+      if (!fixedCode || fixedCode === document.getText()) {
+        return [];
+      }
+
+      const originalText = document.getText();
+      const lines = originalText.split('\n');
+      const lastLine = lines.length - 1;
+      const lastChar = lines[lastLine].length;
+
+      return [{
+        range: {
+          start: {line: 0, character: 0},
+          end: {line: lastLine, character: lastChar}
+        },
+        newText: fixedCode
+      }];
+    }
+    catch (err) {
+      this.handleStylelintError(err, 'autofix-on-save', document.uri);
+
+      return [];
+    }
+  }
+
+  /**
+   * Handle executeAutofix request with URI validation
+   * @param {Object} params - Request params {uri, diagnostic}
+   * @returns {Promise<void>}
+   */
+  async handleAutofixRequest(params) {
+    const {uri, diagnostic} = params || {};
+
+    if (!uri || typeof uri !== 'string') {
+      const errorMsg = 'Cannot execute autofix: Invalid document reference. Please ensure a valid file is open.';
+
+      this.connection.console.log(`[executeAutofix] ${errorMsg} (received: ${JSON.stringify(uri)})`);
+      this.connection.window.showErrorMessage(errorMsg);
+
+      return;
+    }
+
+    await this.executeAutofix(uri, diagnostic);
+  }
+
+  /**
+   * Handle validateNow request — validate a specific document or all
+   * @param {Object} params - Request params {uri}
+   * @returns {Promise<void>}
+   */
+  async handleValidateNow(params) {
+    const {uri} = params || {};
+
+    if (uri) {
+      const document = this.documents.get(uri);
+
+      if (document) {
+        await this.validate(document);
+      }
+    }
+    else {
+      await this.validateAll();
+    }
+  }
+
+  /**
+   * Handle configuration change — update settings and re-validate or clear
+   * @param {Object} params - Configuration change params
+   */
+  handleConfigurationChange(params) {
+    const settings = params?.settings;
+    const stylelintSettings = settings?.stylelint || {};
+
+    this.config = stylelintSettings.config;
+    this.autoFixOnSave = stylelintSettings.autoFixOnSave;
+    this.useLocal = stylelintSettings.useLocal;
+    this.disableErrorMessage = stylelintSettings.disableErrorMessage;
+    this.runMode = stylelintSettings.run || 'onType';
+    this.configFile = stylelintSettings.configFile || '';
+    this.ignorePath = stylelintSettings.ignorePath || '';
+    this.ignoreNodeModules = stylelintSettings.ignoreNodeModules !== false;
+    this.ruleCustomizations = Array.isArray(stylelintSettings.rules?.customizations)
+      ? stylelintSettings.rules.customizations
+      : [];
+    this.disableRuleCommentLocation =
+      stylelintSettings.codeAction?.disableRuleComment?.location || 'separateLine';
+
+    this.clearResolutionCache();
+
+    if (this.runMode === 'onType') {
+      this.validateAll();
+    }
+    else {
+      this.clearAllDiagnostics();
+    }
+  }
+
+  /**
+   * Lint all matching files in the workspace
+   * @param {Object} [params] - Request params (may include custom extensions list)
+   * @returns {Promise<{filesScanned: number, totalFiles: number}>}
+   */
+  async lintWorkspace(params) {
+    const folders = await this.getWorkspaceFolders();
+
+    if (!folders || folders.length === 0) {
+      return {filesScanned: 0};
+    }
+
+    const extensions = params?.extensions || [
+      '.css', '.scss', '.less', '.sass', '.sss',
+      '.vue', '.svelte', '.html', '.xml', '.xsl',
+      '.md', '.markdown'
+    ];
+
+    const targetFolder = folders[0];
+    const rootPath = parseUri(targetFolder.uri).fsPath;
+
+    const files = [];
+
+    async function walkDir(dir) {
+      let entries;
+
+      try {
+        entries = await fsPromises.readdir(dir, {withFileTypes: true});
+      }
+      catch {
+        return;
+      }
+
+      for (const entry of entries) {
+        const fullPath = join(dir, entry.name);
+
+        if (entry.isDirectory()) {
+          if (entry.name === 'node_modules' || entry.name === '.git' ||
+              entry.name === 'dist' || entry.name === 'build' ||
+              entry.name === 'coverage' || entry.name === '.next' ||
+              entry.name === '.nuxt') {
+            continue;
+          }
+
+          await walkDir(fullPath);
+        }
+        else if (entry.isFile()) {
+          const ext = fullPath.substring(fullPath.lastIndexOf('.'));
+
+          if (extensions.includes(ext)) {
+            files.push(fullPath);
+          }
+        }
+      }
+    }
+
+    await walkDir(rootPath);
+
+    let scanned = 0;
+
+    for (let i = 0; i < files.length; i += MAX_CONCURRENT_VALIDATIONS) {
+      const batch = files.slice(i, i + MAX_CONCURRENT_VALIDATIONS);
+
+      await Promise.all(batch.map(async (filePath) => {
+        try {
+          const content = await fsPromises.readFile(filePath, 'utf8');
+
+          if (content.length > MAX_FILE_SIZE) {
+            return;
+          }
+
+          const ext = filePath.substring(filePath.lastIndexOf('.'));
+          const langMap = {
+            '.css': 'css', '.scss': 'scss', '.less': 'less',
+            '.sass': 'sass', '.sss': 'sugarss', '.vue': 'vue',
+            '.svelte': 'svelte', '.html': 'html', '.xml': 'xml',
+            '.xsl': 'xsl', '.md': 'markdown', '.markdown': 'markdown'
+          };
+          const languageId = langMap[ext] || 'css';
+
+          const uri = `file://${filePath}`;
+          const tempDoc = TextDocument.create(uri, languageId, 1, content);
+
+          const {options, localNotFound} = await this.buildStylelintOptions(tempDoc);
+
+          if (localNotFound) {
+            delete options.path;
+          }
+
+          const {diagnostics, ruleMetadata} = await stylelintVSCode(tempDoc, options);
+          const finalDiagnostics = this.applyRuleCustomizations(diagnostics);
+
+          this.connection.sendDiagnostics({uri, diagnostics: finalDiagnostics});
+          this.documentDiagnostics.set(uri, {diagnostics: finalDiagnostics, ruleMetadata});
+
+          scanned++;
+        }
+        catch (_err) {
+          // Skip files that fail to lint
+        }
+      }));
+
+      this.safeNotification('stylelint/lintProgress', {
+        current: Math.min(i + MAX_CONCURRENT_VALIDATIONS, files.length),
+        total: files.length
+      });
+    }
+
+    return {filesScanned: scanned, totalFiles: files.length};
+  }
+
+  /**
+   * Build code actions for stylelint diagnostics
+   * @param {Object} params - Code action request params
+   * @returns {Array} Code actions
+   */
+  getCodeActions(params) {
     const {textDocument, context} = params || {};
 
     if (!textDocument || !context) {
@@ -741,8 +1004,10 @@ function startServer() {
       return [];
     }
 
-    const { ruleMetadata = {} } = server.documentDiagnostics.get(textDocument.uri) || {};
+    const { ruleMetadata = {} } = this.documentDiagnostics.get(textDocument.uri) || {};
+    const document = this.documents.get(textDocument.uri);
 
+    // Quick fix actions for fixable diagnostics
     const fixableDiagnostics = stylelintDiagnostics.filter(diagnostic => {
       const rule = diagnostic.code;
 
@@ -753,10 +1018,6 @@ function startServer() {
         return false;
       }
     });
-
-    if (fixableDiagnostics.length === 0) {
-      return [];
-    }
 
     for (const diagnostic of fixableDiagnostics) {
       codeActions.push({
@@ -771,146 +1032,100 @@ function startServer() {
       });
     }
 
-    return codeActions;
-  });
+    // Disable rule comment actions for all stylelint diagnostics with a rule code
+    for (const diagnostic of stylelintDiagnostics) {
+      const rule = diagnostic.code;
 
-  // Execute autofix handler
-  connection.onRequest('stylelint/executeAutofix', async (params) => {
-    const {uri, diagnostic} = params || {};
-
-    if (!uri || typeof uri !== 'string') {
-      const errorMsg = 'Cannot execute autofix: Invalid document reference. Please ensure a valid file is open.';
-
-      connection.console.log(`[executeAutofix] ${errorMsg} (received: ${JSON.stringify(uri)})`);
-      connection.window.showErrorMessage(errorMsg);
-
-      return;
-    }
-
-    await server.executeAutofix(uri, diagnostic);
-  });
-
-  // Initialize handler
-  connection.onInitialize(() => {
-    server.validateAll();
-
-    return {
-      capabilities: {
-        textDocumentSync: {
-          openClose: true,
-          change: documents.syncKind,
-          willSaveWaitUntil: true,
-          save: { includeText: false }
-        },
-        codeActionProvider: true
+      if (!rule || typeof rule !== 'string') {
+        continue;
       }
-    };
-  });
 
-  // Configuration change handler
-  connection.onDidChangeConfiguration((params) => {
-    const settings = params?.settings;
-    const stylelintSettings = settings?.stylelint || {};
+      if (!document) {
+        continue;
+      }
 
-    server.config = stylelintSettings.config;
-    server.autoFixOnSave = stylelintSettings.autoFixOnSave;
-    server.useLocal = stylelintSettings.useLocal;
-    server.disableErrorMessage = stylelintSettings.disableErrorMessage;
+      const line = diagnostic.range.start.line;
 
-    server.validateAll();
-  });
+      let codeActionEdit;
 
-  // Watched files change handler
-  connection.onDidChangeWatchedFiles(() => {
-    server.validateAll();
-  });
-
-  // Shutdown handler
-  connection.onShutdown(() => {
-    server.isShuttingDown = true;
-    server.dispose();
-  });
-
-  // Document change handler with debouncing
-  documents.onDidChangeContent(({document}) => {
-    server.validateDebounced(document);
-  });
-
-  // Document close handler
-  documents.onDidClose(({document}) => {
-    // Clear debouncer for closed document
-    server.clearDebouncer(document.uri);
-
-    connection.sendDiagnostics({
-      uri: document.uri,
-      diagnostics: []
-    });
-    server.documentDiagnostics.delete(document.uri);
-  });
-
-  // Auto-fix on save handler — returns TextEdits applied before save
-  documents.onWillSaveWaitUntil(async (event) => {
-    if (!server.autoFixOnSave) {
-      return [];
-    }
-
-    const document = event.document;
-
-    try {
-      const {options, localNotFound} = await server.buildStylelintOptions(document, {fix: true});
-
-      if (localNotFound) {
-        // Fallback to bundled version for auto-fix on save
-        delete options.path;
-
-        const versionInfo = await server.getVersionInfo(null);
-
-        server.safeNotification('stylelint/versionDetected', {
-          version: versionInfo.version,
-          isLocal: false,
-          isFallback: true
+      if (this.disableRuleCommentLocation === 'sameLine') {
+        const lineText = document.getText({
+          start: {line, character: 0},
+          end: {line, character: Number.MAX_SAFE_INTEGER}
         });
+        const lineEnd = lineText.length;
+
+        codeActionEdit = {
+          changes: {
+            [textDocument.uri]: [{
+              range: {
+                start: {line, character: lineEnd},
+                end: {line, character: lineEnd}
+              },
+              newText: ` /* stylelint-disable-line ${rule} */`
+            }]
+          }
+        };
+      }
+      else {
+        const lineText = document.getText({
+          start: {line, character: 0},
+          end: {line, character: Number.MAX_SAFE_INTEGER}
+        });
+
+        const indent = lineText.match(/^(\s*)/)[1];
+
+        codeActionEdit = {
+          changes: {
+            [textDocument.uri]: [{
+              range: {
+                start: {line, character: 0},
+                end: {line, character: 0}
+              },
+              newText: `${indent}/* stylelint-disable-next-line ${rule} */\n`
+            }]
+          }
+        };
       }
 
-      const {fixedCode} = await stylelintVSCode(document, options);
-
-      if (!fixedCode || fixedCode === document.getText()) {
-        return [];
-      }
-
-      // Return full-document replacement TextEdit
-      const originalText = document.getText();
-      const lines = originalText.split('\n');
-      const lastLine = lines.length - 1;
-      const lastChar = lines[lastLine].length;
-
-      return [{
-        range: {
-          start: {line: 0, character: 0},
-          end: {line: lastLine, character: lastChar}
-        },
-        newText: fixedCode
-      }];
+      codeActions.push({
+        title: `Disable ${rule} for this line`,
+        kind: CodeActionKind.QuickFix,
+        diagnostics: [diagnostic],
+        edit: codeActionEdit
+      });
     }
-    catch (err) {
-      server.handleStylelintError(err, 'autofix-on-save', document.uri);
 
-      return [];
+    return codeActions;
+  }
+
+  /**
+   * Dispose and clean up all resources
+   */
+  dispose() {
+    for (const timeoutId of this.validateDebouncers.values()) {
+      clearTimeout(timeoutId);
     }
-  });
+    this.validateDebouncers.clear();
 
-  // Start listening
-  documents.listen(connection);
-  connection.listen();
+    this.validationTokens.clear();
 
-  return server;
+    this.documentDiagnostics.dispose();
+    this.diagnosticsBatcher.dispose();
+
+    this.versionCache.clear();
+    this.resolutionCache.clear();
+    this.workspaceCache = null;
+    this.workspaceCacheTime = 0;
+    this.reportedErrors.clear();
+
+    if (this.boundUnhandledRejection) {
+      process.removeListener('unhandledRejection', this.boundUnhandledRejection);
+    }
+    if (this.boundUncaughtException) {
+      process.removeListener('uncaughtException', this.boundUncaughtException);
+    }
+  }
 }
 
-// Only start the server if this file is being run directly (not required as a module)
-/* istanbul ignore next -- only runs when executed directly, not testable via require */
-if (require.main === module) {
-  startServer();
-}
-
-// Export for testing
-module.exports = {StylelintServer, startServer};
+module.exports = StylelintServer;

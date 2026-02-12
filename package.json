@@ -14,7 +14,7 @@
     "theme": "light"
   },
   "engines": {
-    "vscode": ">=1.35.0",
+    "vscode": ">=1.63.0",
     "node": ">=18.0.0"
   },
   "categories": [
@@ -58,6 +58,26 @@
         "command": "stylelint.executeAutofix",
         "title": "Fix all auto-fixable problems",
         "category": "Stylelint"
+      },
+      {
+        "command": "stylelint.refreshLocalSearch",
+        "title": "Refresh local stylelint search",
+        "category": "Stylelint"
+      },
+      {
+        "command": "stylelint.openOutput",
+        "title": "Show output channel",
+        "category": "Stylelint"
+      },
+      {
+        "command": "stylelint.validateNow",
+        "title": "Validate current file",
+        "category": "Stylelint"
+      },
+      {
+        "command": "stylelint.lintWorkspace",
+        "title": "Lint entire workspace",
+        "category": "Stylelint"
       }
     ],
     "configuration": {
@@ -91,6 +111,84 @@
           "type": "boolean",
           "default": true,
           "description": "Whether to turn off the display of error messages."
+        },
+        "stylelint.run": {
+          "type": "string",
+          "default": "onType",
+          "enum": [
+            "onType",
+            "onSave",
+            "manual"
+          ],
+          "enumDescriptions": [
+            "Validate as you type (default)",
+            "Validate only when the file is saved",
+            "Validate only when manually triggered via command"
+          ],
+          "description": "Controls when stylelint validation is triggered."
+        },
+        "stylelint.configFile": {
+          "type": "string",
+          "default": "",
+          "description": "Path to a stylelint configuration file. Relative paths are resolved from the workspace root. Takes precedence over stylelint.config."
+        },
+        "stylelint.ignorePath": {
+          "type": "string",
+          "default": "",
+          "description": "Path to a .stylelintignore file. Relative paths are resolved from the workspace root. When empty, auto-discovers .stylelintignore by walking up from the document."
+        },
+        "stylelint.ignoreNodeModules": {
+          "type": "boolean",
+          "default": true,
+          "description": "Whether to skip validation for files inside node_modules directories."
+        },
+        "stylelint.rules.customizations": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "rule": {
+                "type": "string",
+                "description": "The stylelint rule name."
+              },
+              "severity": {
+                "type": "string",
+                "enum": [
+                  "error",
+                  "warning",
+                  "information",
+                  "hint",
+                  "off"
+                ],
+                "description": "The severity to override with."
+              }
+            },
+            "required": [
+              "rule",
+              "severity"
+            ],
+            "additionalProperties": false
+          },
+          "default": [],
+          "description": "Override the severity of specific stylelint rules. Use 'off' to suppress a rule entirely."
+        },
+        "stylelint.codeAction.disableRuleComment": {
+          "type": "object",
+          "properties": {
+            "location": {
+              "type": "string",
+              "enum": [
+                "separateLine",
+                "sameLine"
+              ],
+              "default": "separateLine",
+              "description": "Where to insert the disable comment."
+            }
+          },
+          "default": {
+            "location": "separateLine"
+          },
+          "description": "Options for the 'Disable rule' code action."
         }
       }
     },

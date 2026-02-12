@@ -1,7 +1,7 @@
 'use strict';
 
 const { assert } = require('chai');
-const LRUCache = require('../../src/lru-cache');
+const LRUCache = require('../../src/shared/lru-cache');
 
 describe('LRUCache', () => {
   let cache;

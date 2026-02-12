@@ -8,7 +8,7 @@
 const {
   DIAGNOSTICS_CLEANUP_INTERVAL_MS,
   DIAGNOSTICS_MAX_AGE_MS
-} = require('./constants');
+} = require('../shared/constants');
 
 class DocumentDiagnosticsManager {
   /**

@@ -42,23 +42,23 @@ describe('Server Error Handling', () => {
     };
 
     // Get the StylelintServer class with mocked dependencies
-    const serverModule = proxyquire('../../src/server', {
+    const serverModule = proxyquire('../../src/server/stylelint-server', {
       'fs': {
         existsSync: sinon.stub().returns(false),
         promises: fsPromisesStub
       },
-      './utils': { isRangeOverlap: sinon.stub(), generateTextEdits: sinon.stub(), generateTempFilename: sinon.stub() },
-      './lru-cache': sinon.stub().returns({ get: sinon.stub(), set: sinon.stub(), clear: sinon.stub() }),
+      '../shared/utils': { isRangeOverlap: sinon.stub(), generateTextEdits: sinon.stub(), generateTempFilename: sinon.stub() },
+      '../shared/lru-cache': sinon.stub().returns({ get: sinon.stub(), set: sinon.stub(), clear: sinon.stub() }),
       './document-diagnostics-manager': sinon.stub().returns({ set: sinon.stub(), delete: sinon.stub(), dispose: sinon.stub() }),
       './diagnostics-batcher': sinon.stub().returns({ add: sinon.stub(), dispose: sinon.stub() }),
-      '../package.json': {
+      '../../package.json': {
         get dependencies() {
           throw new Error('Load failed');
         }
       }
     });
 
-    StylelintServer = serverModule.StylelintServer;
+    StylelintServer = serverModule;
   });
 
   it('should handle bundled package.json load error', async () => {

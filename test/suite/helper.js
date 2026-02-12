@@ -34,6 +34,15 @@ async function waitForStylelintDiagnostics(document, timeout = 10000) {
 }
 
 /**
+ * Wait for stylelint diagnostics to be cleared from a document
+ * @param {Object} document - VS Code text document
+ * @param {number} [timeout=10000] - Timeout in ms
+ */
+async function waitForDiagnosticsCleared(document, timeout = 10000) {
+  await pWaitFor(() => getStylelintDiagnostics(document).length === 0, { timeout });
+}
+
+/**
  * Create an isolated temp directory outside the project tree.
  * Each test suite gets its own subdirectory to avoid cross-test interference.
  *
@@ -86,7 +95,13 @@ async function resetConfig(keys) {
     'enable',
     'useLocal',
     'autoFixOnSave',
-    'disableErrorMessage'
+    'disableErrorMessage',
+    'run',
+    'configFile',
+    'ignorePath',
+    'ignoreNodeModules',
+    'rules.customizations',
+    'codeAction.disableRuleComment'
   ];
   const config = workspace.getConfiguration('stylelint');
   for (const key of configKeys) {
@@ -150,6 +165,7 @@ function cleanupDir(dir) {
 module.exports = {
   getStylelintDiagnostics,
   waitForStylelintDiagnostics,
+  waitForDiagnosticsCleared,
   createIsolatedTempDir,
   createTestFile,
   cleanupFiles,

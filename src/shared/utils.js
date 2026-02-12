@@ -2,6 +2,7 @@
 
 const { TextEdit } = require('vscode-languageserver-types');
 const JsDiff = require('diff');
+const parseUri = require('vscode-uri').URI.parse;
 
 function isRangeOverlap(r1, r2, lineThreshold = 0, charThreshold = 0) {
   const expandedStartLine = r1.start.line - lineThreshold;
@@ -56,7 +57,57 @@ function generateTextEdits(document, originalText, fixedText) {
   return edits;
 }
 
+/**
+ * Check if a document path is inside node_modules
+ * @param {string} documentUri - Document URI
+ * @returns {boolean}
+ */
+function isNodeModulesPath(documentUri) {
+  try {
+    const fsPath = parseUri(documentUri).fsPath;
+
+    if (!fsPath) {
+      return false;
+    }
+
+    // Normalize separators for cross-platform
+    const normalized = fsPath.replace(/\\/g, '/');
+
+    return normalized.includes('/node_modules/');
+  }
+  catch {
+    return false;
+  }
+}
+
+/**
+ * Get workspace folder for a document
+ * @param {string} documentUri - Document URI
+ * @param {Array} folders - Workspace folders
+ * @returns {Object|undefined} Workspace folder or undefined
+ */
+function getWorkspaceForDocument(documentUri, folders) {
+  if (!folders) {
+    return undefined;
+  }
+
+  const docUri = parseUri(documentUri);
+  const docUriStr = docUri.toString();
+
+  return folders
+    .filter(folder => {
+      const folderUriStr = parseUri(folder.uri).toString();
+      // Ensure folder URI ends with / for proper prefix matching
+      const folderPrefix = folderUriStr.endsWith('/') ? folderUriStr : folderUriStr + '/';
+
+      return docUriStr === folderUriStr || docUriStr.startsWith(folderPrefix);
+    })
+    .sort((a, b) => b.uri.length - a.uri.length)[0];
+}
+
 module.exports = {
   isRangeOverlap,
-  generateTextEdits
+  generateTextEdits,
+  isNodeModulesPath,
+  getWorkspaceForDocument
 };

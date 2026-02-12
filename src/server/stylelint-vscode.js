@@ -10,7 +10,7 @@ const inspectWithKind = require('inspect-with-kind');
 const parseUri = require('vscode-uri').URI.parse;
 const stylelintWarningToVscodeDiagnostic = require('./diagnostic');
 const loadStylelint = require('./load-stylelint');
-const { MAX_FILE_SIZE } = require('./constants');
+const { MAX_FILE_SIZE } = require('../shared/constants');
 
 module.exports = async function stylelintVSCode(textDocument, options = {}) {
   if (!TextDocument.is(textDocument)) {

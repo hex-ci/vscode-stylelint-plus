@@ -5,7 +5,7 @@
  * @module diagnostics-batcher
  */
 
-const {BATCH_DIAGNOSTICS_INTERVAL_MS} = require('./constants');
+const {BATCH_DIAGNOSTICS_INTERVAL_MS} = require('../shared/constants');
 
 class DiagnosticsBatcher {
   /**

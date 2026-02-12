@@ -77,7 +77,14 @@ describe('Server resolveStylelintOptions', () => {
       size: 0
     };
 
-    const serverModule = proxyquire('../../src/server', {
+    const optionsResolver = proxyquire('../../src/server/options-resolver', {
+      'find-pkg-dir': findPkgDirStub,
+      'fs': {
+        promises: fsPromisesStub
+      }
+    });
+
+    const serverModule = proxyquire('../../src/server/stylelint-server', {
       './stylelint-vscode': sinon.stub().resolves([]),
       './load-stylelint': sinon.stub().resolves({lint: sinon.stub().resolves({results: []})}),
       'find-pkg-dir': findPkgDirStub,
@@ -85,15 +92,16 @@ describe('Server resolveStylelintOptions', () => {
         existsSync: sinon.stub().returns(true),
         promises: fsPromisesStub
       },
-      './utils': {
+      '../shared/utils': {
         isRangeOverlap: sinon.stub().returns(true),
         generateTextEdits: sinon.stub().returns([]),
         generateTempFilename: sinon.stub().returns('/tmp/test.css')
       },
-      './lru-cache': sinon.stub().returns(mockLRUCache),
+      '../shared/lru-cache': sinon.stub().returns(mockLRUCache),
       './document-diagnostics-manager': sinon.stub().returns(mockDiagnosticsManager),
       './diagnostics-batcher': sinon.stub().returns(mockBatcher),
-      './constants': {
+      './options-resolver': optionsResolver,
+      '../shared/constants': {
         STYLELINT_ERROR_CODE_CONFIG: 78,
         DIAGNOSTIC_OVERLAP_LINE_THRESHOLD: 1,
         DIAGNOSTIC_OVERLAP_CHAR_THRESHOLD: 2,
@@ -107,7 +115,7 @@ describe('Server resolveStylelintOptions', () => {
       }
     });
 
-    StylelintServer = serverModule.StylelintServer;
+    StylelintServer = serverModule;
   });
 
   describe('resolveStylelintOptions', () => {
@@ -179,10 +187,14 @@ describe('Server resolveStylelintOptions', () => {
 
       connectionMock.workspace.getWorkspaceFolders.resolves([]);
 
-      // First package dir doesn't have stylelint
-      findPkgDirStub.onFirstCall().returns('/project/nested');
-      findPkgDirStub.onSecondCall().returns('/project');
-      findPkgDirStub.onThirdCall().returns(null);
+      // findPkgDir is called at:
+      //   line 35 (stopPath fallback) — 1st call
+      //   line 80 (useLocal loop, 1st iteration) — 2nd call
+      //   line 80 (useLocal loop, 2nd iteration after line 92) — 3rd call
+      findPkgDirStub.onCall(0).returns(null);              // stopPath fallback
+      findPkgDirStub.onCall(1).returns('/project/nested');  // 1st useLocal iteration
+      findPkgDirStub.onCall(2).returns('/project');         // 2nd useLocal iteration (after resolve to parent)
+      findPkgDirStub.onCall(3).returns(null);              // terminate
 
       fsPromisesStub.access.withArgs('/project/nested/node_modules/stylelint').rejects();
       fsPromisesStub.access.withArgs('/project/node_modules/stylelint').resolves();
@@ -258,9 +270,7 @@ describe('Server resolveStylelintOptions', () => {
   });
 
   afterEach(() => {
-    if (processOnStub) {
-      processOnStub.restore();
-      processOnStub = null;
-    }
+    sinon.restore();
+    processOnStub = null;
   });
 });
