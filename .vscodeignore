@@ -19,6 +19,7 @@ screenshot.png
 .github/
 fixture.css
 stylelint.config.js
+CHANGELOG.md
 
 # Keep dist and package info
 !dist/**/*.js
