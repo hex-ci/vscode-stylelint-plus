@@ -1,28 +1,21 @@
-# Ignore source and dev files
-src/
-scripts/
-test/
-media/
-.vscode/
-.vscode-test/
-.gitignore
-.eslintrc*
-eslint.config.js
-coverage/
-**/*.map
-*.local.md
-tsconfig.json
-.stylelintignore
-screenshot.png
-.nyc_output/
-.nyc_output_json/
-.github/
-fixture.css
-stylelint.config.js
+# Ignore everything, then whitelist what we need
+**
 
-# Keep dist and package info
+# Bundled output
 !dist/**/*.js
+
+# Production dependencies (resolved by vsce)
+!node_modules/**
+
+# Localization
+!l10n/**
+!package.nls.json
+!package.nls.zh-cn.json
+
+# Package metadata
 !package.json
 !README.md
+!README.zh-CN.md
 !LICENSE
+!CHANGELOG.md
 !media/icon.png
