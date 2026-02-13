@@ -9,7 +9,8 @@ const {
   window,
   languages,
   commands,
-  LanguageStatusSeverity
+  LanguageStatusSeverity,
+  l10n
 } = require('vscode');
 const {activationEvents = []} = require('../../package.json');
 
@@ -40,28 +41,28 @@ const updateLanguageStatus = () => {
     const ver = versionInfo.version ? ` v${versionInfo.version}` : '';
 
     languageStatusItem.text = 'Stylelint+';
-    languageStatusItem.detail = `$(warning) Local not found, using bundled${ver}`;
+    languageStatusItem.detail = l10n.t('$(warning) Local not found, using bundled{0}', ver);
     languageStatusItem.severity = LanguageStatusSeverity.Warning;
     languageStatusItem.command = {
-      title: 'Retry local search',
-      command: 'stylelint.refreshLocalSearch'
+      title: l10n.t('Retry local search'),
+      command: 'stylelint.retryLocalSearch'
     };
 
     return;
   }
 
   const hasVersion = Boolean(versionInfo.version);
-  const source = versionInfo.isLocal ? 'local' : 'bundled';
+  const source = versionInfo.isLocal ? l10n.t('local') : l10n.t('bundled');
 
   languageStatusItem.text = 'Stylelint+';
 
   languageStatusItem.detail = hasVersion
-    ? `${source} v${versionInfo.version}`
-    : 'Ready';
+    ? l10n.t('{0} v{1}', source, versionInfo.version)
+    : l10n.t('Ready');
 
   languageStatusItem.severity = LanguageStatusSeverity.Information;
   languageStatusItem.command = {
-    title: 'Open Output',
+    title: l10n.t('Open Output'),
     command: 'stylelint.openOutput'
   };
 };
@@ -145,7 +146,7 @@ module.exports.activate = (context) => {
     })
     .catch((err) => {
       console.error('Language client failed to start:', err);
-      window.showErrorMessage('Stylelint+ extension failed to start');
+      window.showErrorMessage(l10n.t('Stylelint+ extension failed to start'));
     });
 
   subscriptions.push(
@@ -153,7 +154,7 @@ module.exports.activate = (context) => {
       const enabled = workspace.getConfiguration('stylelint').get('enable');
 
       if (!enabled) {
-        window.showInformationMessage('Stylelint+ is disabled. Enable it in settings to use this command.');
+        window.showInformationMessage(l10n.t('Stylelint+ is disabled. Enable it in settings to use this command.'));
 
         return;
       }
@@ -167,7 +168,7 @@ module.exports.activate = (context) => {
         const activeEditor = window.activeTextEditor;
 
         if (!activeEditor) {
-          window.showInformationMessage('Please open a file to use this command.');
+          window.showInformationMessage(l10n.t('Please open a file to use this command.'));
 
           return;
         }
@@ -177,7 +178,7 @@ module.exports.activate = (context) => {
 
         if (!supportedLanguages.includes(document.languageId)) {
           window.showInformationMessage(
-            `This command only works on support files. Current file type: ${document.languageId}`
+            l10n.t('This command only works on supported files. Current file type: {0}', document.languageId)
           );
 
           return;
@@ -189,7 +190,7 @@ module.exports.activate = (context) => {
       }
 
       if (!uri || typeof uri !== 'string' || uri.trim() === '') {
-        window.showErrorMessage('Failed to get document URI. Please try again.');
+        window.showErrorMessage(l10n.t('Failed to get document URI. Please try again.'));
 
         return;
       }
@@ -198,28 +199,28 @@ module.exports.activate = (context) => {
         await client.sendRequest('stylelint/executeAutofix', {uri, diagnostic});
       }
       catch (err) {
-        window.showErrorMessage(`Stylelint fix failed: ${err?.message || String(err)}`);
+        window.showErrorMessage(l10n.t('Stylelint fix failed: {0}', err?.message || String(err)));
       }
     })
   );
 
   subscriptions.push(
-    commands.registerCommand('stylelint.refreshLocalSearch', async () => {
+    commands.registerCommand('stylelint.retryLocalSearch', async () => {
       languageStatusItem.busy = true;
-      languageStatusItem.detail = 'Searching for local stylelint...';
+      languageStatusItem.detail = l10n.t('Searching for local Stylelint...');
 
       try {
         await client.onReady();
-        await client.sendRequest('stylelint/refreshLocalSearch');
+        await client.sendRequest('stylelint/retryLocalSearch');
 
         // After refresh, versionDetected notification will update the status.
         // If still in fallback, show a message so user knows it completed.
         if (versionInfo.isFallback) {
-          window.showWarningMessage('Local stylelint still not found. Make sure it is installed and try again.');
+          window.showWarningMessage(l10n.t('Local Stylelint still not found. Make sure it is installed and try again.'));
         }
       }
       catch (err) {
-        window.showErrorMessage(`Refresh failed: ${err?.message || String(err)}`);
+        window.showErrorMessage(l10n.t('Refresh failed: {0}', err?.message || String(err)));
         updateLanguageStatus();
       }
       finally {
@@ -239,7 +240,7 @@ module.exports.activate = (context) => {
       const enabled = workspace.getConfiguration('stylelint').get('enable');
 
       if (!enabled) {
-        window.showInformationMessage('Stylelint+ is disabled. Enable it in settings to use this command.');
+        window.showInformationMessage(l10n.t('Stylelint+ is disabled. Enable it in settings to use this command.'));
 
         return;
       }
@@ -264,7 +265,7 @@ module.exports.activate = (context) => {
       const enabled = workspace.getConfiguration('stylelint').get('enable');
 
       if (!enabled) {
-        window.showInformationMessage('Stylelint+ is disabled. Enable it in settings to use this command.');
+        window.showInformationMessage(l10n.t('Stylelint+ is disabled. Enable it in settings to use this command.'));
 
         return;
       }
@@ -274,7 +275,7 @@ module.exports.activate = (context) => {
       await window.withProgress(
         {
           location: 15, // ProgressLocation.Notification
-          title: 'Stylelint: Linting workspace...',
+          title: l10n.t('Stylelint: Linting workspace...'),
           cancellable: false
         },
         async (progress) => {
@@ -288,7 +289,7 @@ module.exports.activate = (context) => {
               if (total > 0) {
                 const pct = Math.round((current / total) * 100);
 
-                progress.report({message: `${current}/${total} files (${pct}%)`, increment: 0});
+                progress.report({message: l10n.t('{0}/{1} files ({2}%)', current, total, pct), increment: 0});
               }
             });
           }
@@ -301,10 +302,10 @@ module.exports.activate = (context) => {
             const scanned = result?.filesScanned || 0;
             const total = result?.totalFiles || 0;
 
-            window.showInformationMessage(`Stylelint: Scanned ${scanned} of ${total} files.`);
+            window.showInformationMessage(l10n.t('Stylelint: Scanned {0} of {1} files.', scanned, total));
           }
           catch (err) {
-            window.showErrorMessage(`Stylelint workspace lint failed: ${err?.message || String(err)}`);
+            window.showErrorMessage(l10n.t('Stylelint workspace lint failed: {0}', err?.message || String(err)));
           }
           finally {
             if (progressDisposable && typeof progressDisposable.dispose === 'function') {

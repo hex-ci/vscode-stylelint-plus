@@ -66,6 +66,17 @@ describe('Extension Activation', () => {
         Warning: 1,
         Error: 2
       },
+      l10n: {
+        t: sinon.spy((...args) => {
+          let result = String(args[0]);
+
+          for (let i = 1; i < args.length; i++) {
+            result = result.replace(`{${i - 1}}`, args[i]);
+          }
+
+          return result;
+        })
+      },
       ExtensionContext: sinon.stub()
     };
   });
@@ -221,7 +232,7 @@ describe('Extension Activation', () => {
 
     await commandHandler();
 
-    assert.isTrue(vscodeMock.window.showInformationMessage.calledWith(sinon.match('This command only works on support files')));
+    assert.isTrue(vscodeMock.window.showInformationMessage.calledWith(sinon.match('This command only works on supported files')));
   });
 
   it('should handle invalid uri string', async () => {
@@ -326,7 +337,7 @@ describe('Extension Activation', () => {
     assert.equal(languageStatusItemMock.severity, 1); // Warning
     assert.deepEqual(languageStatusItemMock.command, {
       title: 'Retry local search',
-      command: 'stylelint.refreshLocalSearch'
+      command: 'stylelint.retryLocalSearch'
     });
 
     // Fallback with no version
@@ -638,7 +649,7 @@ describe('Extension Activation', () => {
     activate({ subscriptions: [], extensionPath: '/test/ext' });
     await new Promise(resolve => setTimeout(resolve, 0));
 
-    const refreshCall = vscodeMock.commands.registerCommand.getCalls().find(c => c.args[0] === 'stylelint.refreshLocalSearch');
+    const refreshCall = vscodeMock.commands.registerCommand.getCalls().find(c => c.args[0] === 'stylelint.retryLocalSearch');
     const refreshHandler = refreshCall.args[1];
 
     // Reject with an error that has no message property
@@ -837,7 +848,7 @@ describe('Extension Activation', () => {
 
     activate({ subscriptions: [], extensionPath: '/test/ext' });
 
-    assert.isTrue(vscodeMock.commands.registerCommand.calledWith('stylelint.refreshLocalSearch'));
+    assert.isTrue(vscodeMock.commands.registerCommand.calledWith('stylelint.retryLocalSearch'));
   });
 
   it('should send refresh request when refreshLocalSearch command is executed', async () => {
@@ -850,14 +861,14 @@ describe('Extension Activation', () => {
     activate({ subscriptions: [], extensionPath: '/test/ext' });
     await new Promise(resolve => setTimeout(resolve, 0));
 
-    const refreshCall = vscodeMock.commands.registerCommand.getCalls().find(c => c.args[0] === 'stylelint.refreshLocalSearch');
+    const refreshCall = vscodeMock.commands.registerCommand.getCalls().find(c => c.args[0] === 'stylelint.retryLocalSearch');
     const refreshHandler = refreshCall.args[1];
 
     clientInstanceMock.sendRequest = sinon.stub().resolves();
 
     await refreshHandler();
 
-    assert.isTrue(clientInstanceMock.sendRequest.calledWith('stylelint/refreshLocalSearch'));
+    assert.isTrue(clientInstanceMock.sendRequest.calledWith('stylelint/retryLocalSearch'));
     assert.isFalse(languageStatusItemMock.busy);
   });
 
@@ -871,7 +882,7 @@ describe('Extension Activation', () => {
     activate({ subscriptions: [], extensionPath: '/test/ext' });
     await new Promise(resolve => setTimeout(resolve, 0));
 
-    const refreshCall = vscodeMock.commands.registerCommand.getCalls().find(c => c.args[0] === 'stylelint.refreshLocalSearch');
+    const refreshCall = vscodeMock.commands.registerCommand.getCalls().find(c => c.args[0] === 'stylelint.retryLocalSearch');
     const refreshHandler = refreshCall.args[1];
 
     let busyDuringRequest = false;
@@ -902,7 +913,7 @@ describe('Extension Activation', () => {
     const versionHandler = clientInstanceMock.onNotification.args.find(args => args[0] === 'stylelint/versionDetected')[1];
     versionHandler({ version: '15.11.0', isLocal: false, isFallback: true });
 
-    const refreshCall = vscodeMock.commands.registerCommand.getCalls().find(c => c.args[0] === 'stylelint.refreshLocalSearch');
+    const refreshCall = vscodeMock.commands.registerCommand.getCalls().find(c => c.args[0] === 'stylelint.retryLocalSearch');
     const refreshHandler = refreshCall.args[1];
 
     clientInstanceMock.sendRequest = sinon.stub().resolves();
@@ -922,7 +933,7 @@ describe('Extension Activation', () => {
     activate({ subscriptions: [], extensionPath: '/test/ext' });
     await new Promise(resolve => setTimeout(resolve, 0));
 
-    const refreshCall = vscodeMock.commands.registerCommand.getCalls().find(c => c.args[0] === 'stylelint.refreshLocalSearch');
+    const refreshCall = vscodeMock.commands.registerCommand.getCalls().find(c => c.args[0] === 'stylelint.retryLocalSearch');
     const refreshHandler = refreshCall.args[1];
 
     clientInstanceMock.sendRequest = sinon.stub().rejects(new Error('Connection lost'));

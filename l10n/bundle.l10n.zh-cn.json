@@ -1,0 +1,22 @@
+{
+  "$(warning) Local not found, using bundled{0}": "$(warning) 未找到本地版本，使用内置版本{0}",
+  "Retry local search": "重新搜索本地版本",
+  "{0} v{1}": "{0} v{1}",
+  "local": "本地",
+  "bundled": "内置",
+  "Ready": "就绪",
+  "Open Output": "打开输出",
+  "Stylelint+ extension failed to start": "Stylelint+ 扩展启动失败",
+  "Stylelint+ is disabled. Enable it in settings to use this command.": "Stylelint+ 已禁用。请在设置中启用后再使用此命令。",
+  "Please open a file to use this command.": "请先打开一个文件再使用此命令。",
+  "This command only works on supported files. Current file type: {0}": "此命令仅适用于支持的文件类型。当前文件类型：{0}",
+  "Failed to get document URI. Please try again.": "获取文档 URI 失败，请重试。",
+  "Stylelint fix failed: {0}": "Stylelint 修复失败：{0}",
+  "Searching for local Stylelint...": "正在搜索本地 Stylelint...",
+  "Local Stylelint still not found. Make sure it is installed and try again.": "仍未找到本地 Stylelint。请确认是否安装后重试。",
+  "Refresh failed: {0}": "刷新失败：{0}",
+  "Stylelint: Linting workspace...": "Stylelint：正在检查工作区...",
+  "{0}/{1} files ({2}%)": "{0}/{1} 个文件（{2}%）",
+  "Stylelint: Scanned {0} of {1} files.": "Stylelint：已扫描 {1} 个文件中的 {0} 个。",
+  "Stylelint workspace lint failed: {0}": "Stylelint 工作区检查失败：{0}"
+}

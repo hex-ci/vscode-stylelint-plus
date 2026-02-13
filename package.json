@@ -13,8 +13,9 @@
     "color": "#32CD32",
     "theme": "light"
   },
+  "l10n": "./l10n",
   "engines": {
-    "vscode": ">=1.63.0",
+    "vscode": ">=1.73.0",
     "node": ">=18.0.0"
   },
   "categories": [
@@ -56,38 +57,38 @@
     "commands": [
       {
         "command": "stylelint.executeAutofix",
-        "title": "Fix all auto-fixable problems",
+        "title": "%command.executeAutofix%",
         "category": "Stylelint"
       },
       {
-        "command": "stylelint.refreshLocalSearch",
-        "title": "Refresh local stylelint search",
+        "command": "stylelint.retryLocalSearch",
+        "title": "%command.retryLocalSearch%",
         "category": "Stylelint"
       },
       {
         "command": "stylelint.openOutput",
-        "title": "Show output channel",
+        "title": "%command.openOutput%",
         "category": "Stylelint"
       },
       {
         "command": "stylelint.validateNow",
-        "title": "Validate current file",
+        "title": "%command.validateNow%",
         "category": "Stylelint"
       },
       {
         "command": "stylelint.lintWorkspace",
-        "title": "Lint entire workspace",
+        "title": "%command.lintWorkspace%",
         "category": "Stylelint"
       }
     ],
     "configuration": {
       "type": "object",
-      "title": "stylelint+ configuration options",
+      "title": "%configuration.title%",
       "properties": {
         "stylelint.enable": {
           "type": "boolean",
           "default": true,
-          "description": "Control whether stylelint is enabled for CSS/SCSS/Less files or not."
+          "description": "%configuration.enable%"
         },
         "stylelint.config": {
           "type": [
@@ -95,22 +96,22 @@
             "null"
           ],
           "default": null,
-          "description": "A stylelint configuration object."
+          "description": "%configuration.config%"
         },
         "stylelint.useLocal": {
           "type": "boolean",
           "default": false,
-          "description": "use local version of stylelint"
+          "description": "%configuration.useLocal%"
         },
         "stylelint.autoFixOnSave": {
           "type": "boolean",
           "default": false,
-          "description": "Turns auto fix on save on or off."
+          "description": "%configuration.autoFixOnSave%"
         },
         "stylelint.disableErrorMessage": {
           "type": "boolean",
           "default": true,
-          "description": "Whether to turn off the display of error messages."
+          "description": "%configuration.disableErrorMessage%"
         },
         "stylelint.run": {
           "type": "string",
@@ -121,26 +122,26 @@
             "manual"
           ],
           "enumDescriptions": [
-            "Validate as you type (default)",
-            "Validate only when the file is saved",
-            "Validate only when manually triggered via command"
+            "%configuration.run.onType%",
+            "%configuration.run.onSave%",
+            "%configuration.run.manual%"
           ],
-          "description": "Controls when stylelint validation is triggered."
+          "description": "%configuration.run%"
         },
         "stylelint.configFile": {
           "type": "string",
           "default": "",
-          "description": "Path to a stylelint configuration file. Relative paths are resolved from the workspace root. Takes precedence over stylelint.config."
+          "description": "%configuration.configFile%"
         },
         "stylelint.ignorePath": {
           "type": "string",
           "default": "",
-          "description": "Path to a .stylelintignore file. Relative paths are resolved from the workspace root. When empty, auto-discovers .stylelintignore by walking up from the document."
+          "description": "%configuration.ignorePath%"
         },
         "stylelint.ignoreNodeModules": {
           "type": "boolean",
           "default": true,
-          "description": "Whether to skip validation for files inside node_modules directories."
+          "description": "%configuration.ignoreNodeModules%"
         },
         "stylelint.rules.customizations": {
           "type": "array",
@@ -149,7 +150,7 @@
             "properties": {
               "rule": {
                 "type": "string",
-                "description": "The stylelint rule name."
+                "description": "%configuration.rules.customizations.rule%"
               },
               "severity": {
                 "type": "string",
@@ -160,7 +161,7 @@
                   "hint",
                   "off"
                 ],
-                "description": "The severity to override with."
+                "description": "%configuration.rules.customizations.severity%"
               }
             },
             "required": [
@@ -170,7 +171,7 @@
             "additionalProperties": false
           },
           "default": [],
-          "description": "Override the severity of specific stylelint rules. Use 'off' to suppress a rule entirely."
+          "description": "%configuration.rules.customizations%"
         },
         "stylelint.codeAction.disableRuleComment": {
           "type": "object",
@@ -182,13 +183,13 @@
                 "sameLine"
               ],
               "default": "separateLine",
-              "description": "Where to insert the disable comment."
+              "description": "%configuration.codeAction.disableRuleComment.location%"
             }
           },
           "default": {
             "location": "separateLine"
           },
-          "description": "Options for the 'Disable rule' code action."
+          "description": "%configuration.codeAction.disableRuleComment%"
         }
       }
     },

@@ -1,0 +1,22 @@
+{
+  "$(warning) Local not found, using bundled{0}": "$(warning) Local not found, using bundled{0}",
+  "Retry local search": "Retry local search",
+  "{0} v{1}": "{0} v{1}",
+  "local": "local",
+  "bundled": "bundled",
+  "Ready": "Ready",
+  "Open Output": "Open Output",
+  "Stylelint+ extension failed to start": "Stylelint+ extension failed to start",
+  "Stylelint+ is disabled. Enable it in settings to use this command.": "Stylelint+ is disabled. Enable it in settings to use this command.",
+  "Please open a file to use this command.": "Please open a file to use this command.",
+  "This command only works on supported files. Current file type: {0}": "This command only works on supported files. Current file type: {0}",
+  "Failed to get document URI. Please try again.": "Failed to get document URI. Please try again.",
+  "Stylelint fix failed: {0}": "Stylelint fix failed: {0}",
+  "Searching for local Stylelint...": "Searching for local Stylelint...",
+  "Local Stylelint still not found. Make sure it is installed and try again.": "Local Stylelint still not found. Make sure it is installed and try again.",
+  "Refresh failed: {0}": "Refresh failed: {0}",
+  "Stylelint: Linting workspace...": "Stylelint: Linting workspace...",
+  "{0}/{1} files ({2}%)": "{0}/{1} files ({2}%)",
+  "Stylelint: Scanned {0} of {1} files.": "Stylelint: Scanned {0} of {1} files.",
+  "Stylelint workspace lint failed: {0}": "Stylelint workspace lint failed: {0}"
+}

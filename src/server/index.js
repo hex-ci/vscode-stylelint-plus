@@ -20,8 +20,8 @@ function startServer() {
   // Code action handler
   connection.onCodeAction((params) => server.getCodeActions(params));
 
-  // Refresh local stylelint search handler
-  connection.onRequest('stylelint/refreshLocalSearch', async () => {
+  // Retry local stylelint search handler
+  connection.onRequest('stylelint/retryLocalSearch', async () => {
     server.clearResolutionCache();
     server.versionCache.clear();
     await server.validateAll();

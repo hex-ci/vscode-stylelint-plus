@@ -3519,14 +3519,14 @@ describe('Server', () => {
       });
     });
 
-    describe('onRequest stylelint/refreshLocalSearch', () => {
+    describe('onRequest stylelint/retryLocalSearch', () => {
       it('should clear caches and revalidate', async () => {
         const server = serverModule.startServer();
         server.resolutionCache.set('test-key', { path: '/test' });
         const clearSpy = sinon.spy(server, 'clearResolutionCache');
         const validateAllStub = sinon.stub(server, 'validateAll').resolves();
 
-        await handlers['onRequest:stylelint/refreshLocalSearch']();
+        await handlers['onRequest:stylelint/retryLocalSearch']();
 
         assert.isTrue(clearSpy.called);
         assert.isTrue(server.versionCache.clear.called);
