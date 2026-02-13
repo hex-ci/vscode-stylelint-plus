@@ -809,6 +809,69 @@ describe('Server', () => {
       assert.equal(server.resolveStylelintOptions.callCount, 1);
     });
 
+    it('should not share resolution cache across different subdirectories in same workspace', async () => {
+      const server = new StylelintServer(connectionMock, documentsMock);
+      server.useLocal = true;
+      const documentA = {
+        uri: 'file:///workspace/packages/a/a.css',
+        getText: () => 'a { color: red; }'
+      };
+      const documentB = {
+        uri: 'file:///workspace/packages/b/b.css',
+        getText: () => 'b { color: red; }'
+      };
+
+      server.resolveStylelintOptions = sinon.stub();
+      server.resolveStylelintOptions.onFirstCall().resolves({
+        ignorePath: '/workspace/packages/a/.stylelintignore',
+        path: '/workspace/packages/a/node_modules/stylelint'
+      });
+      server.resolveStylelintOptions.onSecondCall().resolves({
+        ignorePath: '/workspace/packages/b/.stylelintignore',
+        path: '/workspace/packages/b/node_modules/stylelint'
+      });
+
+      connectionMock.workspace.getWorkspaceFolders.resolves([
+        { uri: 'file:///workspace' }
+      ]);
+
+      const first = await server.buildStylelintOptions(documentA);
+      const second = await server.buildStylelintOptions(documentB);
+
+      assert.equal(server.resolveStylelintOptions.callCount, 2);
+      assert.equal(first.options.ignorePath, '/workspace/packages/a/.stylelintignore');
+      assert.equal(second.options.ignorePath, '/workspace/packages/b/.stylelintignore');
+      assert.equal(first.options.path, '/workspace/packages/a/node_modules/stylelint');
+      assert.equal(second.options.path, '/workspace/packages/b/node_modules/stylelint');
+    });
+
+    it('should reuse resolution cache for files in same subdirectory', async () => {
+      const server = new StylelintServer(connectionMock, documentsMock);
+      server.useLocal = true;
+      const documentA = {
+        uri: 'file:///workspace/packages/a/a.css',
+        getText: () => 'a { color: red; }'
+      };
+      const documentB = {
+        uri: 'file:///workspace/packages/a/b.css',
+        getText: () => 'b { color: red; }'
+      };
+
+      server.resolveStylelintOptions = sinon.stub().resolves({
+        ignorePath: '/workspace/packages/a/.stylelintignore',
+        path: '/workspace/packages/a/node_modules/stylelint'
+      });
+
+      connectionMock.workspace.getWorkspaceFolders.resolves([
+        { uri: 'file:///workspace' }
+      ]);
+
+      await server.buildStylelintOptions(documentA);
+      await server.buildStylelintOptions(documentB);
+
+      assert.equal(server.resolveStylelintOptions.callCount, 1);
+    });
+
     it('should cache localNotFound for untitled documents', async () => {
       const server = new StylelintServer(connectionMock, documentsMock);
       server.useLocal = true;
@@ -2393,6 +2456,92 @@ describe('Server', () => {
       assert.equal(result.totalFiles, 1);
       assert.isTrue(connectionMock.sendDiagnostics.called);
       assert.isTrue(connectionMock.sendNotification.called);
+    });
+
+    it('should lint files across all workspace folders', async () => {
+      const server = new StylelintServer(connectionMock, documentsMock);
+      server.resolveStylelintOptions = sinon.stub().resolves({});
+
+      connectionMock.workspace.getWorkspaceFolders.resolves([
+        { uri: 'file:///workspace-a' },
+        { uri: 'file:///workspace-b' }
+      ]);
+
+      fsPromisesStub.readdir = sinon.stub();
+      fsPromisesStub.readdir.withArgs('/workspace-a', sinon.match.any).resolves([
+        { name: 'a.css', isDirectory: () => false, isFile: () => true }
+      ]);
+      fsPromisesStub.readdir.withArgs('/workspace-b', sinon.match.any).resolves([
+        { name: 'b.css', isDirectory: () => false, isFile: () => true }
+      ]);
+
+      fsPromisesStub.readFile.withArgs('/workspace-a/a.css', 'utf8').resolves('a {}');
+      fsPromisesStub.readFile.withArgs('/workspace-b/b.css', 'utf8').resolves('b {}');
+
+      stylelintVSCodeStub.resolves({ diagnostics: [], ruleMetadata: {} });
+
+      const result = await server.lintWorkspace();
+
+      assert.equal(result.filesScanned, 2);
+      assert.equal(result.totalFiles, 2);
+      assert.isTrue(fsPromisesStub.readdir.calledWith('/workspace-a', sinon.match.any));
+      assert.isTrue(fsPromisesStub.readdir.calledWith('/workspace-b', sinon.match.any));
+    });
+
+    it('should create file URI using pathToFileURL for special characters', async () => {
+      const server = new StylelintServer(connectionMock, documentsMock);
+      server.resolveStylelintOptions = sinon.stub().resolves({});
+
+      connectionMock.workspace.getWorkspaceFolders.resolves([
+        { uri: 'file:///workspace' }
+      ]);
+
+      fsPromisesStub.readdir = sinon.stub();
+      fsPromisesStub.readdir.withArgs('/workspace', sinon.match.any).resolves([
+        { name: 'my file#.css', isDirectory: () => false, isFile: () => true }
+      ]);
+
+      fsPromisesStub.readFile.withArgs('/workspace/my file#.css', 'utf8').resolves('a {}');
+      stylelintVSCodeStub.resolves({ diagnostics: [], ruleMetadata: {} });
+
+      await server.lintWorkspace();
+
+      const expectedUri = require('url').pathToFileURL('/workspace/my file#.css').href;
+      const doc = stylelintVSCodeStub.firstCall.args[0];
+      const diagnosticsPayload = connectionMock.sendDiagnostics.firstCall.args[0];
+
+      assert.equal(doc.uri, expectedUri);
+      assert.equal(diagnosticsPayload.uri, expectedUri);
+    });
+
+    it('should dedupe files when workspace folders overlap', async () => {
+      const server = new StylelintServer(connectionMock, documentsMock);
+      server.resolveStylelintOptions = sinon.stub().resolves({});
+
+      connectionMock.workspace.getWorkspaceFolders.resolves([
+        { uri: 'file:///workspace' },
+        { uri: 'file:///workspace/packages/a' }
+      ]);
+
+      fsPromisesStub.readdir = sinon.stub();
+      fsPromisesStub.readdir.withArgs('/workspace', sinon.match.any).resolves([
+        { name: 'packages', isDirectory: () => true, isFile: () => false }
+      ]);
+      fsPromisesStub.readdir.withArgs('/workspace/packages', sinon.match.any).resolves([
+        { name: 'a', isDirectory: () => true, isFile: () => false }
+      ]);
+      fsPromisesStub.readdir.withArgs('/workspace/packages/a', sinon.match.any).resolves([
+        { name: 'app.css', isDirectory: () => false, isFile: () => true }
+      ]);
+
+      fsPromisesStub.readFile.withArgs('/workspace/packages/a/app.css', 'utf8').resolves('a {}');
+      stylelintVSCodeStub.resolves({ diagnostics: [], ruleMetadata: {} });
+
+      const result = await server.lintWorkspace();
+
+      assert.equal(result.filesScanned, 1);
+      assert.equal(result.totalFiles, 1);
+      assert.equal(stylelintVSCodeStub.callCount, 1);
     });
 
     it('should skip ignored directories (node_modules, .git, dist, build, coverage, .next, .nuxt)', async () => {

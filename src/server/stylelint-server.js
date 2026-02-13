@@ -11,6 +11,8 @@ const {
   CodeActionKind
 } = require('vscode-languageserver');
 const parseUri = require('vscode-uri').URI.parse;
+const { pathToFileURL } = require('url');
+const findPkgDir = require('find-pkg-dir');
 const stylelintVSCode = require('./stylelint-vscode');
 const { isRangeOverlap, generateTextEdits, isNodeModulesPath, getWorkspaceForDocument } = require('../shared/utils');
 const resolveStylelintOptions = require('./options-resolver');
@@ -325,8 +327,11 @@ class StylelintServer {
         options.configFile = join(options.cwd, options.configFile);
       }
 
-      // Use workspace URI as cache key; fall back to cwd for files outside any workspace
-      const cacheKey = workspace ? workspace.uri : options.cwd;
+      // Cache by package root to avoid cross-package leakage in monorepos
+      // findPkgDir returns the closest directory containing package.json
+      const pkgRoot = findPkgDir(documentPath) || dirname(documentPath);
+      const workspaceKey = workspace ? workspace.uri : '__no_workspace__';
+      const cacheKey = `${workspaceKey}|${pkgRoot}`;
       const cached = this.resolutionCache.get(cacheKey);
 
       let ignorePath;
@@ -890,12 +895,15 @@ class StylelintServer {
       '.md', '.markdown'
     ];
 
-    const targetFolder = folders[0];
-    const rootPath = parseUri(targetFolder.uri).fsPath;
-
-    const files = [];
+    const files = new Set();
+    const visitedDirs = new Set();
 
     async function walkDir(dir) {
+      if (visitedDirs.has(dir)) {
+        return;
+      }
+      visitedDirs.add(dir);
+
       let entries;
 
       try {
@@ -922,18 +930,22 @@ class StylelintServer {
           const ext = fullPath.substring(fullPath.lastIndexOf('.'));
 
           if (extensions.includes(ext)) {
-            files.push(fullPath);
+            files.add(fullPath);
           }
         }
       }
     }
 
-    await walkDir(rootPath);
+    for (const folder of folders) {
+      const rootPath = parseUri(folder.uri).fsPath;
+      await walkDir(rootPath);
+    }
 
+    const uniqueFiles = [...files];
     let scanned = 0;
 
-    for (let i = 0; i < files.length; i += MAX_CONCURRENT_VALIDATIONS) {
-      const batch = files.slice(i, i + MAX_CONCURRENT_VALIDATIONS);
+    for (let i = 0; i < uniqueFiles.length; i += MAX_CONCURRENT_VALIDATIONS) {
+      const batch = uniqueFiles.slice(i, i + MAX_CONCURRENT_VALIDATIONS);
 
       await Promise.all(batch.map(async (filePath) => {
         try {
@@ -952,7 +964,7 @@ class StylelintServer {
           };
           const languageId = langMap[ext] || 'css';
 
-          const uri = `file://${filePath}`;
+          const uri = pathToFileURL(filePath).href;
           const tempDoc = TextDocument.create(uri, languageId, 1, content);
 
           const {options, localNotFound} = await this.buildStylelintOptions(tempDoc);
@@ -975,12 +987,12 @@ class StylelintServer {
       }));
 
       this.safeNotification('stylelint/lintProgress', {
-        current: Math.min(i + MAX_CONCURRENT_VALIDATIONS, files.length),
-        total: files.length
+        current: Math.min(i + MAX_CONCURRENT_VALIDATIONS, uniqueFiles.length),
+        total: uniqueFiles.length
       });
     }
 
-    return {filesScanned: scanned, totalFiles: files.length};
+    return {filesScanned: scanned, totalFiles: uniqueFiles.length};
   }
 
   /**

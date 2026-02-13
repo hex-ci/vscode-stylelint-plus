@@ -5,3 +5,4 @@
 LICENSE
 node_modules/
 coverage/
+.vscode-test/
