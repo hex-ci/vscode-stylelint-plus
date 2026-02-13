@@ -2,6 +2,33 @@
 
 All notable changes to the **vscode-stylelint-plus** extension will be documented in this file.
 
+## 2.1.0
+
+### Added
+
+- Internationalization (i18n) support using VS Code's l10n API for all UI strings and configuration descriptions
+- Simplified Chinese translation for the extension UI, settings, and a dedicated `README.zh-CN.md`
+
+### Changed
+
+- Renamed `refreshLocalSearch` command to `retryLocalSearch` for clarity
+- Bumped minimum VS Code engine version to `>=1.73.0`
+- Switched `.vscodeignore` to a whitelist strategy to prevent accidental inclusion of development files
+
+## 2.0.2
+
+### Changed
+
+- Monorepo-aware configuration resolution — validation now identifies package boundaries to isolate stylelint configuration per package, preventing settings leakage across modules
+- Multi-root workspace traversal aggregates all active workspace folders while filtering redundant paths
+- Sanitized file URI generation to support complex file naming
+
+## 2.0.1
+
+### Fixed
+
+- Included CHANGELOG in the published extension package
+
 ## 2.0.0
 
 ### Added
