@@ -1,6 +1,6 @@
 {
   "name": "stylelint-plus",
-  "version": "2.0.1",
+  "version": "2.0.2",
   "displayName": "stylelint-plus",
   "description": "Lint CSS, SCSS, Less and more with Stylelint — auto-fix on save, supports v14-v17, Vue, Svelte, and styled-components.",
   "publisher": "hex-ci",
