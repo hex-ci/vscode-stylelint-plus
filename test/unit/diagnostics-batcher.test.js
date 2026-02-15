@@ -98,4 +98,18 @@ describe('DiagnosticsBatcher', () => {
     // Only 1 call (the one that threw), not 2
     assert.strictEqual(connectionMock.sendDiagnostics.callCount, 1);
   });
+
+  it('should not throw when dispose is called and connection is closed', () => {
+    const diagnostics = [{ message: 'error1' }];
+    batcher.add('file:///test.css', diagnostics);
+
+    // Simulate connection being closed — sendDiagnostics throws
+    connectionMock.sendDiagnostics.throws(new Error('Connection closed'));
+
+    // dispose should not throw
+    batcher.dispose();
+
+    // Pending should be cleared despite the error
+    assert.strictEqual(batcher.pending.size, 0);
+  });
 });

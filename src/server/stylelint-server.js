@@ -59,6 +59,9 @@ class StylelintServer {
     this.ruleCustomizations = [];
     this.disableRuleCommentLocation = 'separateLine';
 
+    // Track whether we've received the first configuration push
+    this._initialConfigReceived = false;
+
     // State
     this.detectedStylelintVersion = null;
     this.isUsingLocal = false;
@@ -869,7 +872,16 @@ class StylelintServer {
 
     this.clearResolutionCache();
 
-    if (this.runMode === 'onType') {
+    // On first config push, always validate if runMode allows (fixes startup with correct runMode).
+    // On subsequent changes, re-validate or clear as appropriate.
+    if (!this._initialConfigReceived) {
+      this._initialConfigReceived = true;
+
+      if (this.runMode === 'onType') {
+        this.validateAll();
+      }
+    }
+    else if (this.runMode === 'onType') {
       this.validateAll();
     }
     else {
@@ -976,8 +988,18 @@ class StylelintServer {
           const {diagnostics, ruleMetadata} = await stylelintVSCode(tempDoc, options);
           const finalDiagnostics = this.applyRuleCustomizations(diagnostics);
 
-          this.connection.sendDiagnostics({uri, diagnostics: finalDiagnostics});
-          this.documentDiagnostics.set(uri, {diagnostics: finalDiagnostics, ruleMetadata});
+          // Cancel any in-flight real-time validation for this URI
+          const existingToken = this.validationTokens.get(uri);
+
+          if (existingToken) {
+            existingToken.cancelled = true;
+          }
+
+          // Use batcher for consistent sending (matches validate() behavior)
+          this.diagnosticsBatcher.add(uri, finalDiagnostics);
+
+          // Store original diagnostics (before customization) for consistent code action behavior
+          this.documentDiagnostics.set(uri, {diagnostics, ruleMetadata});
 
           scanned++;
         }

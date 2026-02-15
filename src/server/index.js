@@ -38,11 +38,6 @@ function startServer() {
 
   // Initialize handler
   connection.onInitialize(() => {
-    // Only auto-validate on startup if run mode allows it
-    if (server.runMode === 'onType') {
-      server.validateAll();
-    }
-
     return {
       capabilities: {
         textDocumentSync: {

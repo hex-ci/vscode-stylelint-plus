@@ -69,7 +69,12 @@ class DiagnosticsBatcher {
     }
     // Flush any remaining diagnostics
     if (this.pending.size > 0) {
-      this.flush();
+      try {
+        this.flush();
+      }
+      catch {
+        this.pending.clear();
+      }
     }
   }
 }

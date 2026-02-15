@@ -451,9 +451,9 @@ describe('Extension Activation', () => {
     // Client was never started. Now simulate a config change to disabled.
     const configChangeHandler = vscodeMockDisabled.workspace.onDidChangeConfiguration.firstCall.args[0];
 
-    clientInstanceMock.stop = sinon.stub();
+    clientInstanceMock.stop = sinon.stub().resolves();
 
-    configChangeHandler({
+    await configChangeHandler({
       affectsConfiguration: (key) => key === 'stylelint.enable'
     });
 
@@ -694,15 +694,53 @@ describe('Extension Activation', () => {
     // Get the configuration change handler
     const configChangeHandler = vscodeMockWithDisabled.workspace.onDidChangeConfiguration.firstCall.args[0];
 
-    clientInstanceMock.stop = sinon.stub();
+    clientInstanceMock.stop = sinon.stub().resolves();
 
     // Simulate configuration change to disable
-    configChangeHandler({
+    await configChangeHandler({
       affectsConfiguration: (key) => key === 'stylelint.enable'
     });
 
     // Should have called stop
     assert.isTrue(clientInstanceMock.stop.called);
+  });
+
+  it('should handle deactivate when client was already stopped', async () => {
+    const getConfigStub = sinon.stub();
+    getConfigStub.withArgs('enable').returns(true);
+
+    const vscodeMockForDeactivate = {
+      ...vscodeMock,
+      workspace: {
+        ...vscodeMock.workspace,
+        getConfiguration: sinon.stub().returns({ get: getConfigStub })
+      }
+    };
+
+    const { activate, deactivate } = proxyquire('../../src/client/index', {
+      'vscode': vscodeMockForDeactivate,
+      'vscode-languageclient': languageClientMock,
+      'path': { join: (...args) => args.join('/') }
+    });
+
+    const context = { subscriptions: [], extensionPath: '/test/ext', asAbsolutePath: (p) => `/abs/${p}` };
+    activate(context);
+
+    // Stop client via config change
+    getConfigStub.withArgs('enable').returns(false);
+    const configChangeHandler = vscodeMockForDeactivate.workspace.onDidChangeConfiguration.firstCall.args[0];
+    clientInstanceMock.stop = sinon.stub().resolves();
+
+    await configChangeHandler({
+      affectsConfiguration: (key) => key === 'stylelint.enable'
+    });
+
+    assert.isTrue(clientInstanceMock.stop.calledOnce);
+
+    // Now deactivate — should NOT call stop again since clientRunning is false
+    await deactivate();
+
+    assert.isTrue(clientInstanceMock.stop.calledOnce); // still once, not twice
   });
 
   it('should start client when configuration changes to enabled', async () => {

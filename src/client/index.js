@@ -68,6 +68,7 @@ const updateLanguageStatus = () => {
 };
 
 let client;
+let clientRunning = false;
 
 module.exports.activate = (context) => {
   const {subscriptions, extensionPath} = context;
@@ -104,8 +105,6 @@ module.exports.activate = (context) => {
 
   subscriptions.push(client);
 
-  let clientRunning = false;
-
   function startClient() {
     if (clientRunning) {
       return;
@@ -115,13 +114,13 @@ module.exports.activate = (context) => {
     clientRunning = true;
   }
 
-  function stopClient() {
+  async function stopClient() {
     if (!clientRunning) {
       return;
     }
 
-    client.stop();
     clientRunning = false;
+    await client.stop();
   }
 
   const config = workspace.getConfiguration('stylelint');
@@ -333,7 +332,8 @@ module.exports.activate = (context) => {
 };
 
 module.exports.deactivate = async () => {
-  if (client) {
+  if (client && clientRunning) {
+    clientRunning = false;
     await client.stop();
   }
 };

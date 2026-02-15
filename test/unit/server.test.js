@@ -2454,7 +2454,7 @@ describe('Server', () => {
 
       assert.equal(result.filesScanned, 1);
       assert.equal(result.totalFiles, 1);
-      assert.isTrue(connectionMock.sendDiagnostics.called);
+      assert.isTrue(server.diagnosticsBatcher.add.called);
       assert.isTrue(connectionMock.sendNotification.called);
     });
 
@@ -2508,10 +2508,10 @@ describe('Server', () => {
 
       const expectedUri = require('url').pathToFileURL('/workspace/my file#.css').href;
       const doc = stylelintVSCodeStub.firstCall.args[0];
-      const diagnosticsPayload = connectionMock.sendDiagnostics.firstCall.args[0];
+      const batcherAddCall = server.diagnosticsBatcher.add.firstCall;
 
       assert.equal(doc.uri, expectedUri);
-      assert.equal(diagnosticsPayload.uri, expectedUri);
+      assert.equal(batcherAddCall.args[0], expectedUri);
     });
 
     it('should dedupe files when workspace folders overlap', async () => {
@@ -2744,8 +2744,8 @@ describe('Server', () => {
       await server.lintWorkspace();
 
       // The 'off' customization should filter out the diagnostic
-      const sendCall = connectionMock.sendDiagnostics.firstCall;
-      assert.deepEqual(sendCall.args[0].diagnostics, []);
+      const batcherAddCall = server.diagnosticsBatcher.add.firstCall;
+      assert.deepEqual(batcherAddCall.args[1], []);
     });
 
     it('should send progress notifications', async () => {
@@ -2876,6 +2876,69 @@ describe('Server', () => {
       assert.equal(doc1.languageId, 'scss');
       assert.equal(doc2.languageId, 'vue');
       assert.equal(doc3.languageId, 'markdown');
+    });
+
+    it('should store original diagnostics (before customization) in documentDiagnostics', async () => {
+      const server = new StylelintServer(connectionMock, documentsMock);
+      server.ruleCustomizations = [
+        { rule: 'color-named', severity: 'warning' }
+      ];
+      server.resolveStylelintOptions = sinon.stub().resolves({});
+
+      connectionMock.workspace.getWorkspaceFolders.resolves([
+        { uri: 'file:///workspace' }
+      ]);
+
+      fsPromisesStub.readdir = sinon.stub();
+      fsPromisesStub.readdir.withArgs('/workspace', sinon.match.any).resolves([
+        { name: 'style.css', isDirectory: () => false, isFile: () => true }
+      ]);
+
+      fsPromisesStub.readFile.withArgs('/workspace/style.css', 'utf8').resolves('a { color: red; }');
+
+      const originalDiagnostics = [{ code: 'color-named', severity: 1, message: 'test' }];
+      stylelintVSCodeStub.resolves({
+        diagnostics: originalDiagnostics,
+        ruleMetadata: { 'color-named': { fixable: false } }
+      });
+
+      await server.lintWorkspace();
+
+      // documentDiagnostics should store original (pre-customization) diagnostics
+      const setCall = server.documentDiagnostics.set.lastCall;
+      assert.deepEqual(setCall.args[1].diagnostics, originalDiagnostics);
+      assert.deepEqual(setCall.args[1].ruleMetadata, { 'color-named': { fixable: false } });
+
+      // batcher should receive customized diagnostics (severity changed to warning=2)
+      const batcherCall = server.diagnosticsBatcher.add.lastCall;
+      assert.equal(batcherCall.args[1][0].severity, 2);
+    });
+
+    it('should cancel in-flight validation tokens for linted URIs', async () => {
+      const server = new StylelintServer(connectionMock, documentsMock);
+      server.resolveStylelintOptions = sinon.stub().resolves({});
+
+      connectionMock.workspace.getWorkspaceFolders.resolves([
+        { uri: 'file:///workspace' }
+      ]);
+
+      fsPromisesStub.readdir = sinon.stub();
+      fsPromisesStub.readdir.withArgs('/workspace', sinon.match.any).resolves([
+        { name: 'style.css', isDirectory: () => false, isFile: () => true }
+      ]);
+
+      fsPromisesStub.readFile.withArgs('/workspace/style.css', 'utf8').resolves('a {}');
+      stylelintVSCodeStub.resolves({ diagnostics: [], ruleMetadata: {} });
+
+      // Simulate an in-flight validation token
+      const uri = require('url').pathToFileURL('/workspace/style.css').href;
+      const existingToken = { cancelled: false };
+      server.validationTokens.set(uri, existingToken);
+
+      await server.lintWorkspace();
+
+      // The existing token should have been cancelled
+      assert.isTrue(existingToken.cancelled);
     });
   });
 
@@ -3021,9 +3084,8 @@ describe('Server', () => {
       assert.isTrue(capabilities.capabilities.codeActionProvider);
     });
 
-    it('should not call validateAll on initialize when runMode is not onType', () => {
+    it('should not call validateAll on initialize (deferred to first config push)', () => {
       const server = serverModule.startServer();
-      server.runMode = 'onSave';
       const validateAllStub = sinon.stub(server, 'validateAll').resolves();
 
       handlers.onInitialize();
@@ -3427,8 +3489,39 @@ describe('Server', () => {
         assert.isUndefined(server.autoFixOnSave);
       });
 
+      it('should validateAll on first config push when run mode is onType', () => {
+        const server = serverModule.startServer();
+        assert.isFalse(server._initialConfigReceived);
+        const validateAllStub = sinon.stub(server, 'validateAll').resolves();
+        const clearAllDiagnosticsStub = sinon.stub(server, 'clearAllDiagnostics');
+
+        handlers.onDidChangeConfiguration({
+          settings: { stylelint: { run: 'onType' } }
+        });
+
+        assert.isTrue(server._initialConfigReceived);
+        assert.isTrue(validateAllStub.called);
+        assert.isFalse(clearAllDiagnosticsStub.called);
+      });
+
+      it('should not validateAll on first config push when run mode is onSave', () => {
+        const server = serverModule.startServer();
+        const validateAllStub = sinon.stub(server, 'validateAll').resolves();
+        const clearAllDiagnosticsStub = sinon.stub(server, 'clearAllDiagnostics');
+
+        handlers.onDidChangeConfiguration({
+          settings: { stylelint: { run: 'onSave' } }
+        });
+
+        assert.isTrue(server._initialConfigReceived);
+        assert.isFalse(validateAllStub.called);
+        // First config push with non-onType mode should not clear (nothing to clear yet)
+        assert.isFalse(clearAllDiagnosticsStub.called);
+      });
+
       it('should validateAll when run mode stays onType', () => {
         const server = serverModule.startServer();
+        server._initialConfigReceived = true; // simulate already received first config
         server.runMode = 'onType'; // previous mode
         const validateAllStub = sinon.stub(server, 'validateAll').resolves();
         const clearAllDiagnosticsStub = sinon.stub(server, 'clearAllDiagnostics');
@@ -3443,6 +3536,7 @@ describe('Server', () => {
 
       it('should clear all diagnostics when switching from onType to onSave', () => {
         const server = serverModule.startServer();
+        server._initialConfigReceived = true;
         server.runMode = 'onType'; // previous mode
         const validateAllStub = sinon.stub(server, 'validateAll').resolves();
         const clearAllDiagnosticsStub = sinon.stub(server, 'clearAllDiagnostics');
@@ -3457,6 +3551,7 @@ describe('Server', () => {
 
       it('should clearAllDiagnostics when config changes in onSave mode without mode switch', () => {
         const server = serverModule.startServer();
+        server._initialConfigReceived = true;
         server.runMode = 'onSave'; // previous mode is already onSave
         const validateAllStub = sinon.stub(server, 'validateAll').resolves();
         const clearAllDiagnosticsStub = sinon.stub(server, 'clearAllDiagnostics');
@@ -3472,6 +3567,7 @@ describe('Server', () => {
 
       it('should validateAll when switching from onSave back to onType', () => {
         const server = serverModule.startServer();
+        server._initialConfigReceived = true;
         server.runMode = 'onSave'; // previous mode
         const validateAllStub = sinon.stub(server, 'validateAll').resolves();
         const clearAllDiagnosticsStub = sinon.stub(server, 'clearAllDiagnostics');
