@@ -325,6 +325,11 @@ module.exports.activate = (context) => {
       }
     })
   );
+
+  return {
+    languageStatusItem: () => languageStatusItem,
+    deactivate: module.exports.deactivate
+  };
 };
 
 module.exports.deactivate = async () => {

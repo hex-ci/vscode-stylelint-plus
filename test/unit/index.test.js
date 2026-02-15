@@ -97,11 +97,17 @@ describe('Extension Activation', () => {
     // Before activation, it should be undefined
     assert.isUndefined(languageStatusItem());
 
-    activate(context);
+    const exports = activate(context);
 
     // After activation, it should return the language status item
     assert.isDefined(languageStatusItem());
     assert.isTrue(vscodeMock.languages.createLanguageStatusItem.called);
+
+    // activate() should return exports with languageStatusItem and deactivate
+    assert.isDefined(exports, 'activate should return exports');
+    assert.isFunction(exports.languageStatusItem, 'exports should have languageStatusItem');
+    assert.isFunction(exports.deactivate, 'exports should have deactivate');
+    assert.isDefined(exports.languageStatusItem(), 'exports.languageStatusItem() should return the status item');
   });
 
   it('should activate extension correctly', async () => {
