@@ -25,6 +25,30 @@ describe('Utils', () => {
       // Gap is 2 chars. With threshold 2, they should touch/overlap.
       assert.isTrue(isRangeOverlap(r1, r2, 0, 2));
     });
+
+    it('should overlap when lineThreshold bridges adjacent lines regardless of char position', () => {
+      // Edit on line 5, diagnostic on line 6 at char 50.
+      // lineThreshold=1 means 1-line gap should overlap; charThreshold should NOT undo this.
+      const r1 = { start: { line: 5, character: 0 }, end: { line: 5, character: 0 } };
+      const r2 = { start: { line: 6, character: 50 }, end: { line: 6, character: 55 } };
+      assert.isTrue(isRangeOverlap(r1, r2, 1, 2));
+    });
+
+    it('should not overlap when line gap exceeds lineThreshold', () => {
+      const r1 = { start: { line: 5, character: 0 }, end: { line: 5, character: 0 } };
+      const r2 = { start: { line: 7, character: 0 }, end: { line: 7, character: 5 } };
+      // 2-line gap with lineThreshold=1 should not overlap
+      assert.isFalse(isRangeOverlap(r1, r2, 1, 2));
+    });
+
+    it('should use charThreshold only when ranges are on the same line', () => {
+      const r1 = { start: { line: 3, character: 0 }, end: { line: 3, character: 5 } };
+      const r2 = { start: { line: 3, character: 8 }, end: { line: 3, character: 10 } };
+      // Same line, gap is 3 chars. charThreshold=2 is not enough.
+      assert.isFalse(isRangeOverlap(r1, r2, 0, 2));
+      // charThreshold=3 bridges the gap.
+      assert.isTrue(isRangeOverlap(r1, r2, 0, 3));
+    });
   });
 
   describe('generateTextEdits', () => {

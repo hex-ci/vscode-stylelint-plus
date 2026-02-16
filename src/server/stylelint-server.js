@@ -992,31 +992,39 @@ class StylelintServer {
 
       await Promise.all(batch.map(async (filePath) => {
         try {
-          const content = await fsPromises.readFile(filePath, 'utf8');
+          const uri = parseUri(pathToFileURL(filePath).href).toString();
+          const openDoc = this.documents.get(uri);
+          let doc;
 
-          if (content.length > MAX_FILE_SIZE) {
-            return;
+          if (openDoc) {
+            doc = openDoc;
+          }
+          else {
+            const content = await fsPromises.readFile(filePath, 'utf8');
+
+            if (content.length > MAX_FILE_SIZE) {
+              return;
+            }
+
+            const ext = filePath.substring(filePath.lastIndexOf('.'));
+            const langMap = {
+              '.css': 'css', '.scss': 'scss', '.less': 'less',
+              '.sass': 'sass', '.sss': 'sugarss', '.vue': 'vue',
+              '.svelte': 'svelte', '.html': 'html', '.xml': 'xml',
+              '.xsl': 'xsl', '.md': 'markdown', '.markdown': 'markdown'
+            };
+            const languageId = langMap[ext] || 'css';
+
+            doc = TextDocument.create(uri, languageId, 1, content);
           }
 
-          const ext = filePath.substring(filePath.lastIndexOf('.'));
-          const langMap = {
-            '.css': 'css', '.scss': 'scss', '.less': 'less',
-            '.sass': 'sass', '.sss': 'sugarss', '.vue': 'vue',
-            '.svelte': 'svelte', '.html': 'html', '.xml': 'xml',
-            '.xsl': 'xsl', '.md': 'markdown', '.markdown': 'markdown'
-          };
-          const languageId = langMap[ext] || 'css';
-
-          const uri = pathToFileURL(filePath).href;
-          const tempDoc = TextDocument.create(uri, languageId, 1, content);
-
-          const {options, localNotFound} = await this.buildStylelintOptions(tempDoc);
+          const {options, localNotFound} = await this.buildStylelintOptions(doc);
 
           if (localNotFound) {
             delete options.path;
           }
 
-          const {diagnostics, ruleMetadata} = await stylelintVSCode(tempDoc, options);
+          const {diagnostics, ruleMetadata} = await stylelintVSCode(doc, options);
           const finalDiagnostics = this.applyRuleCustomizations(diagnostics);
 
           // Cancel any in-flight real-time validation for this URI

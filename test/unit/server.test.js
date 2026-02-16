@@ -3134,6 +3134,36 @@ describe('Server', () => {
       assert.isFalse(server.workspaceLintUris.has(uri));
     });
 
+    it('should use editor buffer content for open files instead of reading from disk', async () => {
+      const server = new StylelintServer(connectionMock, documentsMock);
+      server.resolveStylelintOptions = sinon.stub().resolves({});
+
+      connectionMock.workspace.getWorkspaceFolders.resolves([
+        { uri: 'file:///workspace' }
+      ]);
+
+      fsPromisesStub.readdir = sinon.stub();
+      fsPromisesStub.readdir.withArgs('/workspace', sinon.match.any).resolves([
+        { name: 'style.css', isDirectory: () => false, isFile: () => true }
+      ]);
+
+      fsPromisesStub.readFile.withArgs('/workspace/style.css', 'utf8').resolves('disk content');
+      stylelintVSCodeStub.resolves({ diagnostics: [], ruleMetadata: {} });
+
+      const uri = require('url').pathToFileURL('/workspace/style.css').href;
+      const openDoc = { uri, languageId: 'css', getText: () => 'editor buffer content' };
+
+      documentsMock.get.withArgs(uri).returns(openDoc);
+
+      await server.lintWorkspace();
+
+      // Should pass the open document directly, not a TextDocument created from disk content
+      const docArg = stylelintVSCodeStub.firstCall.args[0];
+      assert.equal(docArg, openDoc);
+      // Should NOT have read the file from disk for this URI
+      assert.isFalse(fsPromisesStub.readFile.calledWith('/workspace/style.css', 'utf8'));
+    });
+
     it('should clear previous workspace lint diagnostics before new lint', async () => {
       const server = new StylelintServer(connectionMock, documentsMock);
       server.resolveStylelintOptions = sinon.stub().resolves({});

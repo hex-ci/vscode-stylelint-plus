@@ -6,17 +6,17 @@ const parseUri = require('vscode-uri').URI.parse;
 
 function isRangeOverlap(r1, r2, lineThreshold = 0, charThreshold = 0) {
   const expandedStartLine = r1.start.line - lineThreshold;
-  const expandedStartChar = r1.start.character - charThreshold;
   const expandedEndLine = r1.end.line + lineThreshold;
-  const expandedEndChar = r1.end.character + charThreshold;
 
   const isBefore =
     expandedEndLine < r2.start.line ||
-    (expandedEndLine === r2.start.line && expandedEndChar < r2.start.character);
+    (expandedEndLine === r2.start.line && r1.end.line === r2.start.line &&
+      r1.end.character + charThreshold < r2.start.character);
 
   const isAfter =
     expandedStartLine > r2.end.line ||
-    (expandedStartLine === r2.end.line && expandedStartChar > r2.end.character);
+    (expandedStartLine === r2.end.line && r1.start.line === r2.end.line &&
+      r1.start.character - charThreshold > r2.end.character);
 
   return !(isBefore || isAfter);
 }
