@@ -25,6 +25,11 @@ function startServer() {
     server.clearResolutionCache();
     server.versionCache.clear();
     await server.validateAll();
+
+    return {
+      version: server.detectedStylelintVersion,
+      isLocal: server.isUsingLocal
+    };
   });
 
   // Execute autofix handler

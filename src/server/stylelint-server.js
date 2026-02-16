@@ -86,6 +86,10 @@ class StylelintServer {
     // Debounced validation timers
     this.validateDebouncers = new Map();
 
+    // URIs that received diagnostics from lintWorkspace (not open in editor)
+    // Used to clear stale diagnostics on next lintWorkspace or dispose
+    this.workspaceLintUris = new Set();
+
     // Bound error handlers for cleanup
     this.boundUnhandledRejection = null;
     this.boundUncaughtException = null;
@@ -747,12 +751,35 @@ class StylelintServer {
     const documents = this.documents.all();
 
     for (const document of documents) {
-      this.connection.sendDiagnostics({
-        uri: document.uri,
-        diagnostics: []
-      });
+      try {
+        this.connection.sendDiagnostics({
+          uri: document.uri,
+          diagnostics: []
+        });
+      }
+      catch {
+      }
+
       this.documentDiagnostics.set(document.uri, {diagnostics: [], ruleMetadata: {}});
     }
+  }
+
+  /**
+   * Clear diagnostics for files that were linted by lintWorkspace but are not open in the editor.
+   * Sends empty diagnostics to the client so they are removed from the Problems panel.
+   */
+  clearWorkspaceLintDiagnostics() {
+    for (const uri of this.workspaceLintUris) {
+      try {
+        this.connection.sendDiagnostics({uri, diagnostics: []});
+      }
+      catch {
+      }
+
+      this.documentDiagnostics.delete(uri);
+    }
+
+    this.workspaceLintUris.clear();
   }
 
   /**
@@ -897,6 +924,8 @@ class StylelintServer {
    * @returns {Promise<{filesScanned: number, totalFiles: number}>}
    */
   async lintWorkspace(params) {
+    this.clearWorkspaceLintDiagnostics();
+
     const folders = await this.getWorkspaceFolders();
 
     if (!folders || folders.length === 0) {
@@ -1002,6 +1031,11 @@ class StylelintServer {
 
           // Store original diagnostics (before customization) for consistent code action behavior
           this.documentDiagnostics.set(uri, {diagnostics, ruleMetadata});
+
+          // Track URIs for files not open in editor so we can clear them later
+          if (!this.documents.get(uri)) {
+            this.workspaceLintUris.add(uri);
+          }
 
           scanned++;
         }
@@ -1142,13 +1176,12 @@ class StylelintServer {
     for (const timeoutId of this.validateDebouncers.values()) {
       clearTimeout(timeoutId);
     }
+
     this.validateDebouncers.clear();
-
     this.validationTokens.clear();
-
+    this.clearWorkspaceLintDiagnostics();
     this.documentDiagnostics.dispose();
     this.diagnosticsBatcher.dispose();
-
     this.versionCache.clear();
     this.resolutionCache.clear();
     this.workspaceCache = null;
@@ -1158,6 +1191,7 @@ class StylelintServer {
     if (this.boundUnhandledRejection) {
       process.removeListener('unhandledRejection', this.boundUnhandledRejection);
     }
+
     if (this.boundUncaughtException) {
       process.removeListener('uncaughtException', this.boundUncaughtException);
     }

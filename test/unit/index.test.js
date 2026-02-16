@@ -908,7 +908,7 @@ describe('Extension Activation', () => {
     const refreshCall = vscodeMock.commands.registerCommand.getCalls().find(c => c.args[0] === 'stylelint.retryLocalSearch');
     const refreshHandler = refreshCall.args[1];
 
-    clientInstanceMock.sendRequest = sinon.stub().resolves();
+    clientInstanceMock.sendRequest = sinon.stub().resolves({ version: '16.0.0', isLocal: true });
 
     await refreshHandler();
 
@@ -933,7 +933,7 @@ describe('Extension Activation', () => {
 
     clientInstanceMock.sendRequest = sinon.stub().callsFake(() => {
       busyDuringRequest = languageStatusItemMock.busy;
-      return Promise.resolve();
+      return Promise.resolve({ version: '16.0.0', isLocal: true });
     });
 
     await refreshHandler();
@@ -943,7 +943,7 @@ describe('Extension Activation', () => {
     assert.include(languageStatusItemMock.detail, 'Searching');
   });
 
-  it('should show warning when still in fallback after refresh', async () => {
+  it('should show warning when still not local after refresh', async () => {
     const { activate } = proxyquire('../../src/client/index', {
       'vscode': vscodeMock,
       'vscode-languageclient': languageClientMock,
@@ -953,14 +953,52 @@ describe('Extension Activation', () => {
     activate({ subscriptions: [], extensionPath: '/test/ext' });
     await new Promise(resolve => setTimeout(resolve, 0));
 
-    // Simulate fallback state
-    const versionHandler = clientInstanceMock.onNotification.args.find(args => args[0] === 'stylelint/versionDetected')[1];
-    versionHandler({ version: '15.11.0', isLocal: false, isFallback: true });
+    const refreshCall = vscodeMock.commands.registerCommand.getCalls().find(c => c.args[0] === 'stylelint.retryLocalSearch');
+    const refreshHandler = refreshCall.args[1];
+
+    // Server returns isLocal: false — local stylelint was not found
+    clientInstanceMock.sendRequest = sinon.stub().resolves({ version: '15.11.0', isLocal: false });
+
+    await refreshHandler();
+
+    assert.isTrue(vscodeMock.window.showWarningMessage.calledWith(sinon.match('still not found')));
+  });
+
+  it('should not show warning when local found after refresh', async () => {
+    const { activate } = proxyquire('../../src/client/index', {
+      'vscode': vscodeMock,
+      'vscode-languageclient': languageClientMock,
+      'path': { join: (...args) => args.join('/') }
+    });
+
+    activate({ subscriptions: [], extensionPath: '/test/ext' });
+    await new Promise(resolve => setTimeout(resolve, 0));
 
     const refreshCall = vscodeMock.commands.registerCommand.getCalls().find(c => c.args[0] === 'stylelint.retryLocalSearch');
     const refreshHandler = refreshCall.args[1];
 
-    clientInstanceMock.sendRequest = sinon.stub().resolves();
+    // Server returns isLocal: true — local stylelint was found
+    clientInstanceMock.sendRequest = sinon.stub().resolves({ version: '16.0.0', isLocal: true });
+
+    await refreshHandler();
+
+    assert.isFalse(vscodeMock.window.showWarningMessage.called);
+  });
+
+  it('should show warning when response is null after refresh', async () => {
+    const { activate } = proxyquire('../../src/client/index', {
+      'vscode': vscodeMock,
+      'vscode-languageclient': languageClientMock,
+      'path': { join: (...args) => args.join('/') }
+    });
+
+    activate({ subscriptions: [], extensionPath: '/test/ext' });
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    const refreshCall = vscodeMock.commands.registerCommand.getCalls().find(c => c.args[0] === 'stylelint.retryLocalSearch');
+    const refreshHandler = refreshCall.args[1];
+
+    clientInstanceMock.sendRequest = sinon.stub().resolves(null);
 
     await refreshHandler();
 
@@ -985,6 +1023,31 @@ describe('Extension Activation', () => {
     await refreshHandler();
 
     assert.isTrue(vscodeMock.window.showErrorMessage.calledWith(sinon.match('Refresh failed')));
+  });
+
+  it('should show disabled message for retryLocalSearch when extension is disabled', async () => {
+    const { activate } = proxyquire('../../src/client/index', {
+      'vscode': vscodeMock,
+      'vscode-languageclient': languageClientMock,
+      'path': { join: (...args) => args.join('/') }
+    });
+
+    activate({ subscriptions: [], extensionPath: '/test/ext' });
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    const refreshCall = vscodeMock.commands.registerCommand.getCalls().find(c => c.args[0] === 'stylelint.retryLocalSearch');
+    const refreshHandler = refreshCall.args[1];
+
+    // Disable extension
+    vscodeMock.workspace.getConfiguration.returns({ get: sinon.stub().returns(false) });
+
+    await refreshHandler();
+
+    assert.isTrue(vscodeMock.window.showInformationMessage.calledWith(sinon.match('disabled')));
+    assert.isFalse(clientInstanceMock.sendRequest.called);
+
+    // Restore
+    vscodeMock.workspace.getConfiguration.returns({ get: sinon.stub().returns(true) });
   });
 
   it('should register openOutput command', () => {

@@ -205,16 +205,23 @@ module.exports.activate = (context) => {
 
   subscriptions.push(
     commands.registerCommand('stylelint.retryLocalSearch', async () => {
+      const enabled = workspace.getConfiguration('stylelint').get('enable');
+
+      if (!enabled) {
+        window.showInformationMessage(l10n.t('Stylelint+ is disabled. Enable it in settings to use this command.'));
+
+        return;
+      }
+
       languageStatusItem.busy = true;
       languageStatusItem.detail = l10n.t('Searching for local Stylelint...');
 
       try {
         await client.onReady();
-        await client.sendRequest('stylelint/retryLocalSearch');
+        const result = await client.sendRequest('stylelint/retryLocalSearch');
 
-        // After refresh, versionDetected notification will update the status.
-        // If still in fallback, show a message so user knows it completed.
-        if (versionInfo.isFallback) {
+        // Use the response directly instead of relying on notification timing
+        if (!result?.isLocal) {
           window.showWarningMessage(l10n.t('Local Stylelint still not found. Make sure it is installed and try again.'));
         }
       }

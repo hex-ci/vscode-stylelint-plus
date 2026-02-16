@@ -152,6 +152,8 @@ describe('Server', () => {
       assert.isDefined(server.versionCache);
       assert.isDefined(server.validationTokens);
       assert.isDefined(server.validateDebouncers);
+      assert.isDefined(server.workspaceLintUris);
+      assert.equal(server.workspaceLintUris.size, 0);
       assert.isFalse(server.isShuttingDown);
     });
 
@@ -2266,6 +2268,91 @@ describe('Server', () => {
 
       assert.isFalse(connectionMock.sendDiagnostics.called);
     });
+
+    it('should continue clearing remaining documents when sendDiagnostics throws', () => {
+      const server = new StylelintServer(connectionMock, documentsMock);
+
+      documentsMock.all.returns([
+        { uri: 'file:///test1.css' },
+        { uri: 'file:///test2.css' },
+        { uri: 'file:///test3.css' }
+      ]);
+
+      // First call throws (simulates closed connection), rest succeed
+      connectionMock.sendDiagnostics
+        .onFirstCall().throws(new Error('Connection closed'))
+        .onSecondCall().returns(undefined)
+        .onThirdCall().returns(undefined);
+
+      // Should not throw
+      server.clearAllDiagnostics();
+
+      // All three documents should still have their diagnostics reset
+      assert.isTrue(server.documentDiagnostics.set.calledWith(
+        'file:///test1.css',
+        { diagnostics: [], ruleMetadata: {} }
+      ));
+      assert.isTrue(server.documentDiagnostics.set.calledWith(
+        'file:///test2.css',
+        { diagnostics: [], ruleMetadata: {} }
+      ));
+      assert.isTrue(server.documentDiagnostics.set.calledWith(
+        'file:///test3.css',
+        { diagnostics: [], ruleMetadata: {} }
+      ));
+    });
+  });
+
+  describe('clearWorkspaceLintDiagnostics', () => {
+    it('should send empty diagnostics for tracked workspace lint URIs', () => {
+      const server = new StylelintServer(connectionMock, documentsMock);
+
+      server.workspaceLintUris.add('file:///workspace/a.css');
+      server.workspaceLintUris.add('file:///workspace/b.css');
+
+      server.clearWorkspaceLintDiagnostics();
+
+      assert.isTrue(connectionMock.sendDiagnostics.calledWith({
+        uri: 'file:///workspace/a.css',
+        diagnostics: []
+      }));
+      assert.isTrue(connectionMock.sendDiagnostics.calledWith({
+        uri: 'file:///workspace/b.css',
+        diagnostics: []
+      }));
+      assert.isTrue(server.documentDiagnostics.delete.calledWith('file:///workspace/a.css'));
+      assert.isTrue(server.documentDiagnostics.delete.calledWith('file:///workspace/b.css'));
+      assert.equal(server.workspaceLintUris.size, 0);
+    });
+
+    it('should do nothing when no workspace lint URIs are tracked', () => {
+      const server = new StylelintServer(connectionMock, documentsMock);
+
+      server.clearWorkspaceLintDiagnostics();
+
+      assert.isFalse(connectionMock.sendDiagnostics.called);
+      assert.equal(server.workspaceLintUris.size, 0);
+    });
+
+    it('should continue clearing remaining URIs when sendDiagnostics throws', () => {
+      const server = new StylelintServer(connectionMock, documentsMock);
+
+      server.workspaceLintUris.add('file:///workspace/a.css');
+      server.workspaceLintUris.add('file:///workspace/b.css');
+
+      // First call throws, second succeeds
+      connectionMock.sendDiagnostics
+        .onFirstCall().throws(new Error('Connection closed'))
+        .onSecondCall().returns(undefined);
+
+      // Should not throw
+      server.clearWorkspaceLintDiagnostics();
+
+      // Both URIs should still be cleaned up from documentDiagnostics
+      assert.isTrue(server.documentDiagnostics.delete.calledWith('file:///workspace/a.css'));
+      assert.isTrue(server.documentDiagnostics.delete.calledWith('file:///workspace/b.css'));
+      assert.equal(server.workspaceLintUris.size, 0);
+    });
   });
 
   describe('dispose', () => {
@@ -2300,6 +2387,25 @@ describe('Server', () => {
 
       assert.isTrue(server.documentDiagnostics.dispose.called);
       assert.isTrue(server.diagnosticsBatcher.dispose.called);
+    });
+
+    it('should clear workspace lint diagnostics on dispose', () => {
+      const server = new StylelintServer(connectionMock, documentsMock);
+
+      server.workspaceLintUris.add('file:///workspace/a.css');
+      server.workspaceLintUris.add('file:///workspace/b.css');
+
+      server.dispose();
+
+      assert.isTrue(connectionMock.sendDiagnostics.calledWith({
+        uri: 'file:///workspace/a.css',
+        diagnostics: []
+      }));
+      assert.isTrue(connectionMock.sendDiagnostics.calledWith({
+        uri: 'file:///workspace/b.css',
+        diagnostics: []
+      }));
+      assert.equal(server.workspaceLintUris.size, 0);
     });
 
     it('should clear caches', () => {
@@ -2975,6 +3081,87 @@ describe('Server', () => {
 
       // The existing token should have been cancelled
       assert.isTrue(existingToken.cancelled);
+    });
+
+    it('should track non-open file URIs in workspaceLintUris', async () => {
+      const server = new StylelintServer(connectionMock, documentsMock);
+      server.resolveStylelintOptions = sinon.stub().resolves({});
+
+      connectionMock.workspace.getWorkspaceFolders.resolves([
+        { uri: 'file:///workspace' }
+      ]);
+
+      fsPromisesStub.readdir = sinon.stub();
+      fsPromisesStub.readdir.withArgs('/workspace', sinon.match.any).resolves([
+        { name: 'style.css', isDirectory: () => false, isFile: () => true }
+      ]);
+
+      fsPromisesStub.readFile.withArgs('/workspace/style.css', 'utf8').resolves('a {}');
+      stylelintVSCodeStub.resolves({ diagnostics: [], ruleMetadata: {} });
+
+      // File is NOT open in editor
+      documentsMock.get.returns(undefined);
+
+      await server.lintWorkspace();
+
+      const uri = require('url').pathToFileURL('/workspace/style.css').href;
+      assert.isTrue(server.workspaceLintUris.has(uri));
+    });
+
+    it('should not track URIs for files open in editor', async () => {
+      const server = new StylelintServer(connectionMock, documentsMock);
+      server.resolveStylelintOptions = sinon.stub().resolves({});
+
+      connectionMock.workspace.getWorkspaceFolders.resolves([
+        { uri: 'file:///workspace' }
+      ]);
+
+      fsPromisesStub.readdir = sinon.stub();
+      fsPromisesStub.readdir.withArgs('/workspace', sinon.match.any).resolves([
+        { name: 'style.css', isDirectory: () => false, isFile: () => true }
+      ]);
+
+      fsPromisesStub.readFile.withArgs('/workspace/style.css', 'utf8').resolves('a {}');
+      stylelintVSCodeStub.resolves({ diagnostics: [], ruleMetadata: {} });
+
+      const uri = require('url').pathToFileURL('/workspace/style.css').href;
+
+      // File IS open in editor
+      documentsMock.get.withArgs(uri).returns({ uri, getText: () => 'a {}' });
+
+      await server.lintWorkspace();
+
+      assert.isFalse(server.workspaceLintUris.has(uri));
+    });
+
+    it('should clear previous workspace lint diagnostics before new lint', async () => {
+      const server = new StylelintServer(connectionMock, documentsMock);
+      server.resolveStylelintOptions = sinon.stub().resolves({});
+
+      // Simulate previous workspace lint left some URIs
+      server.workspaceLintUris.add('file:///workspace/old.css');
+
+      connectionMock.workspace.getWorkspaceFolders.resolves([
+        { uri: 'file:///workspace' }
+      ]);
+
+      fsPromisesStub.readdir = sinon.stub();
+      fsPromisesStub.readdir.withArgs('/workspace', sinon.match.any).resolves([
+        { name: 'new.css', isDirectory: () => false, isFile: () => true }
+      ]);
+
+      fsPromisesStub.readFile.resolves('a {}');
+      stylelintVSCodeStub.resolves({ diagnostics: [], ruleMetadata: {} });
+      documentsMock.get.returns(undefined);
+
+      await server.lintWorkspace();
+
+      // Old URI should have been cleared
+      assert.isTrue(connectionMock.sendDiagnostics.calledWith({
+        uri: 'file:///workspace/old.css',
+        diagnostics: []
+      }));
+      assert.isFalse(server.workspaceLintUris.has('file:///workspace/old.css'));
     });
   });
 
@@ -3664,6 +3851,28 @@ describe('Server', () => {
         assert.isTrue(server.versionCache.clear.called);
         assert.isTrue(validateAllStub.called);
         assert.equal(server.resolutionCache.size, 0);
+      });
+
+      it('should return version and isLocal status', async () => {
+        const server = serverModule.startServer();
+        server.detectedStylelintVersion = '16.0.0';
+        server.isUsingLocal = true;
+        sinon.stub(server, 'validateAll').resolves();
+
+        const result = await handlers['onRequest:stylelint/retryLocalSearch']();
+
+        assert.deepEqual(result, { version: '16.0.0', isLocal: true });
+      });
+
+      it('should return bundled info when local not found', async () => {
+        const server = serverModule.startServer();
+        server.detectedStylelintVersion = '15.11.0';
+        server.isUsingLocal = false;
+        sinon.stub(server, 'validateAll').resolves();
+
+        const result = await handlers['onRequest:stylelint/retryLocalSearch']();
+
+        assert.deepEqual(result, { version: '15.11.0', isLocal: false });
       });
     });
 
