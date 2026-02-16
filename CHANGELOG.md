@@ -2,6 +2,22 @@
 
 All notable changes to the **vscode-stylelint-plus** extension will be documented in this file.
 
+## 2.1.1
+
+### Added
+
+- Extension API — `activate()` now returns the language status item and `deactivate` method, enabling programmatic access from other extensions
+
+### Fixed
+
+- Workspace linting now reads from editor buffers instead of disk, ensuring diagnostics match unsaved changes
+- Fixed text edit offset drift for non-BMP characters (e.g. emoji in stylesheets)
+- Rule severity customizations now apply correctly in CSS syntax fallback mode
+- Stale diagnostics for closed files are properly cleared after workspace scans
+- `Retry Local Search` command returns detection results directly, improving reliability
+- Initial validation defers until configuration is received, preventing premature linting with default settings
+- Improved client shutdown sequence to avoid redundant stop calls and connection errors
+
 ## 2.1.0
 
 ### Added
