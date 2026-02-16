@@ -342,6 +342,18 @@ describe('stylelintVSCode', () => {
     assert.isTrue(lintStub.calledOnce);
   });
 
+  it('should not pass internal path option to stylelint lint()', async () => {
+    const document = TextDocument.create('file:///test.css', 'css', 1, 'body {}');
+    await stylelintVSCode(document, { path: '/some/local/stylelint' });
+
+    // path should be used to load the module
+    sinon.assert.calledWith(loadStylelintStub, '/some/local/stylelint');
+
+    // path should NOT be passed to lint()
+    const lintArgs = lintStub.firstCall.args[0];
+    assert.isUndefined(lintArgs.path);
+  });
+
   it('should rethrow other errors', async () => {
     const document = TextDocument.create('file:///test.css', 'css', 1, 'body {}');
     const error = new Error('Other error');

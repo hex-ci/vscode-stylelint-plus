@@ -36,7 +36,7 @@ function generateTextEdits(document, originalText, fixedText) {
     }
     else if (change.removed) {
       const startPos = document.positionAt(currentIndex);
-      const endPos = document.positionAt(currentIndex + change.count);
+      const endPos = document.positionAt(currentIndex + change.value.length);
 
       let newText = '';
 
@@ -47,10 +47,10 @@ function generateTextEdits(document, originalText, fixedText) {
 
       edits.push(TextEdit.replace({ start: startPos, end: endPos }, newText));
 
-      currentIndex += change.count;
+      currentIndex += change.value.length;
     }
     else {
-      currentIndex += change.count;
+      currentIndex += change.value.length;
     }
   }
 

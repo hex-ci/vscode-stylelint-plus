@@ -1477,6 +1477,42 @@ describe('Server', () => {
       assert.isFalse(connectionMock.window.showErrorMessage.called);
     });
 
+    it('should apply ruleCustomizations in CSS fallback path', async () => {
+      const server = new StylelintServer(connectionMock, documentsMock);
+      server.ruleCustomizations = [
+        { rule: 'CssSyntaxError', severity: 'off' }
+      ];
+      const document = {
+        uri: 'file:///workspace/test.css',
+        languageId: 'css',
+        getText: () => 'body { color red }'
+      };
+
+      server.resolveStylelintOptions = sinon.stub().resolves({});
+
+      connectionMock.workspace.getWorkspaceFolders.resolves([
+        { uri: 'file:///workspace' }
+      ]);
+
+      const noConfigError = new Error('No configuration provided for /workspace/test.css');
+      stylelintVSCodeStub.onFirstCall().rejects(noConfigError);
+      stylelintVSCodeStub.onSecondCall().resolves({
+        diagnostics: [{ code: 'CssSyntaxError', severity: 1, message: 'Unexpected token' }],
+        ruleMetadata: {}
+      });
+
+      await server.validate(document);
+
+      // The diagnostic with rule 'CssSyntaxError' should be filtered out by applyRuleCustomizations
+      const batcherAddCall = server.diagnosticsBatcher.add.firstCall;
+      assert.deepEqual(batcherAddCall.args[1], []);
+
+      // documentDiagnostics.set should store the original (unfiltered) diagnostics
+      const setCall = server.documentDiagnostics.set.lastCall;
+      assert.equal(setCall.args[0], document.uri);
+      assert.lengthOf(setCall.args[1].diagnostics, 1);
+    });
+
     it('should silently skip non-CSS files on No configuration provided error', async () => {
       const server = new StylelintServer(connectionMock, documentsMock);
       const document = {

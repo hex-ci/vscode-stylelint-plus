@@ -46,8 +46,10 @@ module.exports = async function stylelintVSCode(textDocument, options = {}) {
   const stylelintModule = await loadStylelint(options.path);
   const { lint } = stylelintModule;
 
+  const {path: _path, ...lintOptions} = options;
+
   const lintResult = await lint({
-    ...options,
+    ...lintOptions,
     ...priorOptions,
     quietDeprecationWarnings: true
   });

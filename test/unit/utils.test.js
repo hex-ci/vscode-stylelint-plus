@@ -67,6 +67,32 @@ describe('Utils', () => {
       assert.equal(edits[0].range.start.character, 3);
       assert.equal(edits[0].range.end.character, 6);
     });
+
+    it('should handle non-BMP Unicode characters (emoji) correctly', () => {
+      // 😀 is a non-BMP character: 1 code point but 2 UTF-16 code units
+      // 'a😀b' has .length = 4 (a=1, 😀=2, b=1)
+      const original = 'a😀b;';
+      const fixed = 'a😀c;';
+      const edits = generateTextEdits(document, original, fixed);
+
+      assert.lengthOf(edits, 1);
+      assert.equal(edits[0].newText, 'c');
+      // 'b' starts at UTF-16 offset 3 (a=0, 😀=1..2, b=3)
+      assert.equal(edits[0].range.start.character, 3);
+      assert.equal(edits[0].range.end.character, 4);
+    });
+
+    it('should handle multiple non-BMP characters without offset drift', () => {
+      const original = '😀😀x';
+      const fixed = '😀😀y';
+      const edits = generateTextEdits(document, original, fixed);
+
+      assert.lengthOf(edits, 1);
+      assert.equal(edits[0].newText, 'y');
+      // 'x' starts at UTF-16 offset 4 (😀=0..1, 😀=2..3, x=4)
+      assert.equal(edits[0].range.start.character, 4);
+      assert.equal(edits[0].range.end.character, 5);
+    });
   });
 
   describe('isNodeModulesPath', () => {

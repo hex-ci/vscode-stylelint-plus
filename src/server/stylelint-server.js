@@ -590,7 +590,9 @@ class StylelintServer {
             const {diagnostics, ruleMetadata} = await stylelintVSCode(document, fallbackOptions);
 
             if (!token.cancelled) {
-              this.diagnosticsBatcher.add(document.uri, diagnostics);
+              const finalDiagnostics = this.applyRuleCustomizations(diagnostics);
+
+              this.diagnosticsBatcher.add(document.uri, finalDiagnostics);
               this.documentDiagnostics.set(document.uri, {diagnostics, ruleMetadata});
             }
           }
