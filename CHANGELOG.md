@@ -2,6 +2,12 @@
 
 All notable changes to the **vscode-stylelint-plus** extension will be documented in this file.
 
+## 2.2.1
+
+### Fixed
+
+- Prevented accidental file truncation during autofix — skips write when stylelint returns empty output for non-empty documents
+
 ## 2.2.0
 
 ### Changed
