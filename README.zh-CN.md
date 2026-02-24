@@ -268,8 +268,6 @@ Stylelint 配置文件的路径。相对于工作区根目录。设置后，优�
 
 每个发布版本的 VSIX 安装包都会通过 [VirusTotal](https://www.virustotal.com/) 扫描，以确认不含恶意软件及其他安全威胁。
 
-🔗 [VirusTotal 扫描报告（v2.1.1）](https://www.virustotal.com/gui/file/5647b3472ca6a46f21d68cc77e535192a5dcf4a37c4c8063663dffcec199e91c)
-
 ## 许可证
 
 [MIT License](./LICENSE) © 2019 – 2026 Hex

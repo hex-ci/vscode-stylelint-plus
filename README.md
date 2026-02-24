@@ -268,8 +268,6 @@ Controls where the "Disable rule" code action inserts the `stylelint-disable` co
 
 The VSIX package for each release is scanned on [VirusTotal](https://www.virustotal.com/) to verify it is free of malware and other security threats.
 
-🔗 [VirusTotal Scan (v2.1.1)](https://www.virustotal.com/gui/file/5647b3472ca6a46f21d68cc77e535192a5dcf4a37c4c8063663dffcec199e91c)
-
 ## License
 
 [MIT License](./LICENSE) © 2019 – 2026 Hex
