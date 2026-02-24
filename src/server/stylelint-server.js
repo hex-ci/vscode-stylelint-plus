@@ -683,7 +683,7 @@ class StylelintServer {
 
       const {fixedCode} = await stylelintVSCode(document, options);
 
-      if (fixedCode == null || fixedCode === originalText) {
+      if (fixedCode == null || fixedCode === originalText || (fixedCode === '' && originalText !== '')) {
         return;
       }
 
@@ -813,11 +813,12 @@ class StylelintServer {
 
       const {fixedCode} = await stylelintVSCode(document, options);
 
-      if (fixedCode == null || fixedCode === document.getText()) {
+      const originalText = document.getText();
+
+      if (fixedCode == null || fixedCode === originalText || (fixedCode === '' && originalText !== '')) {
         return [];
       }
 
-      const originalText = document.getText();
       const lines = originalText.split('\n');
       const lastLine = lines.length - 1;
       const lastChar = lines[lastLine].length;

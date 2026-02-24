@@ -1963,6 +1963,36 @@ describe('Server', () => {
       assert.isFalse(connectionMock.workspace.applyEdit.called);
     });
 
+    it('should not apply edit if fixedCode is empty string but original has content', async () => {
+      const server = new StylelintServer(connectionMock, documentsMock);
+
+      const document = {
+        uri: 'file:///workspace/test.css',
+        getText: () => 'css content'
+      };
+
+      documentsMock.get.returns(document);
+
+      server.resolveStylelintOptions = sinon.stub().resolves({
+        ignorePath: '/workspace/.stylelintignore'
+      });
+
+      connectionMock.workspace.getWorkspaceFolders.resolves([
+        { uri: 'file:///workspace' }
+      ]);
+
+      stylelintVSCodeStub.resolves({
+        diagnostics: [],
+        ruleMetadata: {},
+        fixedCode: ''
+      });
+
+      await server.executeAutofix('file:///workspace/test.css');
+
+      assert.isTrue(stylelintVSCodeStub.called);
+      assert.isFalse(connectionMock.workspace.applyEdit.called);
+    });
+
     it('should apply full-document edit when no diagnostic specified', async () => {
       const server = new StylelintServer(connectionMock, documentsMock);
 
@@ -3468,6 +3498,34 @@ describe('Server', () => {
         diagnostics: [],
         ruleMetadata: {},
         fixedCode: null
+      });
+
+      const edits = await handlers.onWillSaveWaitUntil({ document });
+
+      assert.isArray(edits);
+      assert.equal(edits.length, 0);
+    });
+
+    it('should return empty array when fixedCode is empty string but original has content', async () => {
+      const server = serverModule.startServer();
+      server.autoFixOnSave = true;
+      server.resolveStylelintOptions = sinon.stub().resolves({
+        ignorePath: '/workspace/.stylelintignore'
+      });
+
+      const document = {
+        uri: 'file:///workspace/test.css',
+        getText: () => 'a { color: red; }'
+      };
+
+      connectionStub.workspace.getWorkspaceFolders.resolves([
+        { uri: 'file:///workspace' }
+      ]);
+
+      stylelintVSCodeStub.resolves({
+        diagnostics: [],
+        ruleMetadata: {},
+        fixedCode: ''
       });
 
       const edits = await handlers.onWillSaveWaitUntil({ document });
