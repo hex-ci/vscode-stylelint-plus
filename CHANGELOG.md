@@ -2,6 +2,24 @@
 
 All notable changes to the **vscode-stylelint-plus** extension will be documented in this file.
 
+## 2.2.0
+
+### Changed
+
+- Migrated build system from esbuild to Rollup for improved bundling reliability
+- Moved stylelint from runtime dependencies to devDependencies (bundled at build time)
+- Version detection logic now reads from installed package instead of hardcoded values
+- Improved null safety in autofix with nullish coalescing for `fixedCode` handling
+
+### Fixed
+
+- Added filesystem root guard in options resolver to prevent infinite directory traversal loops
+- Enhanced test suite compatibility with older VS Code versions (1.73.0)
+
+### Docs
+
+- Added security scan section with VirusTotal link to README
+
 ## 2.1.1
 
 ### Added
