@@ -90,6 +90,10 @@ async function resolveStylelintOptions(documentUri, {getWorkspaceFolders, getWor
       }
 
       startDir = resolve(localDir, '..');
+
+      if (startDir === localDir) {
+        break;
+      }
     }
   }
 

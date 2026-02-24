@@ -219,6 +219,24 @@ describe('Server resolveStylelintOptions', () => {
       assert.isUndefined(result.path);
     });
 
+    it('should break useLocal loop when reaching filesystem root', async () => {
+      const server = new StylelintServer(connectionMock, documentsMock);
+      server.useLocal = true;
+
+      connectionMock.workspace.getWorkspaceFolders.resolves([
+        {uri: 'file:///workspace'}
+      ]);
+
+      // findPkgDir always returns root — triggers startDir === localDir guard
+      findPkgDirStub.returns('/');
+
+      fsPromisesStub.access.rejects(new Error('Not found'));
+
+      const result = await server.resolveStylelintOptions('file:///workspace/test.css');
+
+      assert.isUndefined(result.path);
+    });
+
     it('should handle paths with trailing slashes', async () => {
       const server = new StylelintServer(connectionMock, documentsMock);
 

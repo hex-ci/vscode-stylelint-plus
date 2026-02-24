@@ -237,10 +237,28 @@ describe('stylelintVSCode', () => {
     assert.isNull(result.fixedCode);
   });
 
-  it('should return fixedCode as null for v15 no-fix case (empty output)', async () => {
+  it('should return fixedCode as null when both code and output are undefined (v17 fix:false fallback)', async () => {
     const document = TextDocument.create('file:///test.css', 'css', 1, 'body {}');
 
-    // v15 no-fix: output is "" (empty string from stubString formatter)
+    lintStub.resolves({
+      results: [{
+        invalidOptionWarnings: [],
+        warnings: []
+      }],
+      ruleMetadata: buildRuleMetadata()
+      // no code, no output (v17 with fix:true but no result fields)
+    });
+
+    const result = await stylelintVSCode(document, { fix: true });
+
+    assert.isNull(result.fixedCode);
+  });
+
+  it('should preserve empty string fixedCode for v15 fix:true (not convert to null)', async () => {
+    const document = TextDocument.create('file:///test.css', 'css', 1, 'body {}');
+
+    // v14/v15 fix:true: output is always the code text (original or fixed),
+    // never the stub formatter result. An empty output means empty file content.
     lintStub.resolves({
       results: [{
         invalidOptionWarnings: [],
@@ -252,8 +270,8 @@ describe('stylelintVSCode', () => {
 
     const result = await stylelintVSCode(document, { fix: true });
 
-    // Empty string from stubString formatter should be treated as null
-    assert.isNull(result.fixedCode);
+    // Empty string is a valid fix result, should not be converted to null
+    assert.strictEqual(result.fixedCode, '');
   });
 
   it('should not set config for untitled documents (no cwd)', async () => {

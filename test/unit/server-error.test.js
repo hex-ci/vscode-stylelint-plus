@@ -51,8 +51,8 @@ describe('Server Error Handling', () => {
       '../shared/lru-cache': sinon.stub().returns({ get: sinon.stub(), set: sinon.stub(), clear: sinon.stub() }),
       './document-diagnostics-manager': sinon.stub().returns({ set: sinon.stub(), delete: sinon.stub(), dispose: sinon.stub() }),
       './diagnostics-batcher': sinon.stub().returns({ add: sinon.stub(), dispose: sinon.stub() }),
-      '../../package.json': {
-        get dependencies() {
+      'stylelint/package.json': {
+        get version() {
           throw new Error('Load failed');
         }
       }

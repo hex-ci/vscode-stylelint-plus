@@ -68,11 +68,11 @@ module.exports = async function stylelintVSCode(textDocument, options = {}) {
   // Extract fixed code when fix mode is active
   // - v16+: result.code contains the fixed code
   // - v14/v15: result.output is overwritten with fixed code by standalone.js
-  // - || null handles v14/v15 no-fix case where output is "" (empty string from stubString formatter)
+  //   (when fix:true, output always contains code text, never the formatter result)
   let fixedCode = null;
 
   if (options.fix && lintResult) {
-    fixedCode = lintResult.code ?? (lintResult.output || null);
+    fixedCode = lintResult.code ?? (lintResult.output ?? null);
   }
 
   if (results.length === 0) {

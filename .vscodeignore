@@ -4,9 +4,6 @@
 # Bundled output
 !dist/**/*.js
 
-# Production dependencies (resolved by vsce)
-!node_modules/**
-
 # Localization
 !l10n/**
 !package.nls.json

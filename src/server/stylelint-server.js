@@ -261,8 +261,8 @@ class StylelintServer {
     }
     else {
       try {
-        const bundledPkg = require('../../package.json');
-        version = bundledPkg.dependencies.stylelint.replace(/[\^~]/, '');
+        const bundledPkg = require('stylelint/package.json');
+        version = bundledPkg.version;
         isLocal = false;
       }
       catch (_err) {
@@ -683,7 +683,7 @@ class StylelintServer {
 
       const {fixedCode} = await stylelintVSCode(document, options);
 
-      if (!fixedCode || fixedCode === originalText) {
+      if (fixedCode == null || fixedCode === originalText) {
         return;
       }
 
@@ -813,7 +813,7 @@ class StylelintServer {
 
       const {fixedCode} = await stylelintVSCode(document, options);
 
-      if (!fixedCode || fixedCode === document.getText()) {
+      if (fixedCode == null || fixedCode === document.getText()) {
         return [];
       }
 
