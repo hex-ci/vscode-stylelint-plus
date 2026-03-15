@@ -70,15 +70,6 @@ Scans files with these extensions: `.css`, `.scss`, `.less`, `.sass`, `.sss`, `.
 
 Automatically skips `node_modules`, `.git`, `dist`, `build`, `coverage`, `.next`, `.nuxt` directories. Files larger than 5MB are skipped.
 
-### Language Status Indicator
-
-The extension shows a [Language Status](https://code.visualstudio.com/api/references/vscode-api#LanguageStatusItem) item next to the language indicator in the status bar. Click the language name (e.g., "CSS", "SCSS") to see it:
-
-- `Stylelint+ — bundled v15.11.0` — Using the extension's bundled version
-- `Stylelint+ — local v17.0.0` — Using your project's local version
-- `Stylelint+ — ⚠ Local not found, using bundled v15.11.0` — Local Stylelint not found, fell back to bundled
-- `Stylelint+ — Ready` — Shown before the first validation completes
-
 ### Stylelint Version Support
 
 The extension supports Stylelint v14, v15, v16, and v17 with automatic version detection.
@@ -161,7 +152,7 @@ All settings are under the `stylelint.` prefix. Though it's recommended to use a
 
 Type: `boolean` · Default: `true`
 
-Control whether this extension is enabled or not.
+Controls whether this extension is enabled.
 
 ### stylelint.autoFixOnSave
 
@@ -202,7 +193,7 @@ Set the Stylelint [`config`](https://stylelint.io/user-guide/node-api/#config) o
 
 Type: `string` · Default: `""`
 
-Path to a Stylelint configuration file. Relative paths are resolved from the workspace root. When set, this takes precedence over `stylelint.config`.
+Path to a Stylelint configuration file. Relative paths are resolved from the package root (the nearest directory containing `package.json`, found by walking up from the current file). When set, this takes precedence over `stylelint.config`.
 
 ```json
 {
@@ -214,7 +205,7 @@ Path to a Stylelint configuration file. Relative paths are resolved from the wor
 
 Type: `string` · Default: `""`
 
-Path to a `.stylelintignore` file. Relative paths are resolved from the workspace root. When empty, the extension auto-discovers `.stylelintignore` by walking up from the document's directory.
+Path to a `.stylelintignore` file. Relative paths are resolved from the package root (the nearest directory containing `package.json`, found by walking up from the current file). When empty, the extension auto-discovers `.stylelintignore` by walking up from the document's directory.
 
 ### stylelint.ignoreNodeModules
 

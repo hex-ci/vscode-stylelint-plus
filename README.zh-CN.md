@@ -70,15 +70,6 @@
 
 自动跳过 `node_modules`、`.git`、`dist`、`build`、`coverage`、`.next`、`.nuxt` 目录。大于 5MB 的文件会被跳过。
 
-### 语言状态指示器
-
-扩展在状态栏的语言指示器旁显示一个[语言状态](https://code.visualstudio.com/api/references/vscode-api#LanguageStatusItem)项。点击语言名称（如 "CSS"、"SCSS"）即可查看：
-
-- `Stylelint+ — 内置 v15.11.0` — 使用扩展内置版本
-- `Stylelint+ — 本地 v17.0.0` — 使用项目本地版本
-- `Stylelint+ — ⚠ 未找到本地版本，使用内置版本 v15.11.0` — 未找到本地 Stylelint，已回退到内置版本
-- `Stylelint+ — 就绪` — 首次验证完成前显示
-
 ### Stylelint 版本支持
 
 扩展支持 Stylelint v14、v15、v16 和 v17，并具有自动版本检测功能。
@@ -118,7 +109,7 @@ Stylelint v17 需要 Node.js >= 20.19.0 并且完全使用 ESM。
 
 ## 支持的语言
 
-扩展为以下 21 种[语言标识符](https://code.visualstudio.com/docs/languages/overview#_language-id)激活：
+扩展支持以下 21 种[语言标识符](https://code.visualstudio.com/docs/languages/overview#_language-id)，并在对应文件打开时自动激活：
 
 - CSS (`css`)
 - HTML (`html`)
@@ -155,7 +146,7 @@ Stylelint v17 需要 Node.js >= 20.19.0 并且完全使用 ESM。
 
 ## 设置
 
-所有设置都在 `stylelint.` 前缀下。虽然建议在工作区中使用 [Stylelint 配置文件](https://stylelint.io/user-guide/configure/)，但以下 VS Code [设置](https://code.visualstudio.com/docs/configure/settings)也可用。
+所有设置都在 `stylelint.` 前缀下。虽然建议在工作区中使用 [Stylelint 配置文件](https://stylelint.io/user-guide/configure/)，但也可以通过以下 VS Code [设置](https://code.visualstudio.com/docs/configure/settings)进行配置。
 
 ### stylelint.enable
 
@@ -202,7 +193,7 @@ Stylelint v17 需要 Node.js >= 20.19.0 并且完全使用 ESM。
 
 类型：`string` · 默认值：`""`
 
-Stylelint 配置文件的路径。相对于工作区根目录。设置后，优先级高于 `stylelint.config`。
+Stylelint 配置文件的路径。相对路径以 package 根目录（从当前文件向上查找到的最近一个包含 `package.json` 的目录）为基准解析。设置后，优先级高于 `stylelint.config`。
 
 ```json
 {
@@ -214,7 +205,7 @@ Stylelint 配置文件的路径。相对于工作区根目录。设置后，优�
 
 类型：`string` · 默认值：`""`
 
-`.stylelintignore` 文件的路径。相对于工作区根目录。为空时，扩展会从文档所在目录向上自动查找 `.stylelintignore`。
+`.stylelintignore` 文件的路径。相对路径以 package 根目录（从当前文件向上查找到的最近一个包含 `package.json` 的目录）为基准解析。为空时，扩展会从文档所在目录向上自动查找 `.stylelintignore`。
 
 ### stylelint.ignoreNodeModules
 
