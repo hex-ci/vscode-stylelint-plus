@@ -2,6 +2,12 @@
 
 All notable changes to the **vscode-stylelint-plus** extension will be documented in this file.
 
+## 2.2.2
+
+### Docs
+
+- Update README
+
 ## 2.2.1
 
 ### Fixed
